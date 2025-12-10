@@ -413,6 +413,7 @@ HRESULT PcmReader::readChunk( PcmMonoChunk& mono, PcmStereoChunk* stereo )
 			if( hr != E_EOF )
 				return hr;
 			m_readerEndOfFile = true;
+			continue; // Re-run loop to recalc offsets after buffer compaction
 		}
 
 		if( availableSamples > 0 )

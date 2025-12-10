@@ -26,6 +26,7 @@ namespace Whisper
 		bool readerEof = false;
 		ProfileCollection& profiler;
 		std::deque<PcmStereoChunk> queuePcmStereo;
+		mutable CComAutoCriticalSection pcmLock;
 
 		// If the streamStartOffset value is less than the argument,
 		// remove ( off - streamStartOffset ) chunks from the start of all 3 queues, and advance streamStartOffset to the `off` argument

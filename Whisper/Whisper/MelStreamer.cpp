@@ -3,6 +3,8 @@
 #include "../Utils/parallelFor.h"
 using namespace Whisper;
 
+using PcmQueueLock = CComCritSecLock<CComAutoCriticalSection>;
+
 MelStreamer::MelStreamer( const Filters& filters, ProfileCollection& prof, const iAudioReader* iar ) :
 	reader( iar ),
 	melContext( filters ),
@@ -12,6 +14,7 @@ MelStreamer::MelStreamer( const Filters& filters, ProfileCollection& prof, const
 void MelStreamer::dropOldChunks( size_t off )
 {
 	const bool stereo = reader.outputsStereo();
+	PcmQueueLock pcmGuard( pcmLock );
 	for( size_t i = streamStartOffset; i < off; i++ )
 	{
 		queuePcmMono.pop_front();
@@ -24,31 +27,37 @@ void MelStreamer::dropOldChunks( size_t off )
 
 HRESULT MelStreamer::ensurePcmChunks( size_t len )
 {
-	if( readerEof )
-		return queuePcmMono.empty() ? E_EOF : S_FALSE;
-
 	const bool loadStereo = reader.outputsStereo();
 
 	const size_t neededChunks = len + FFT_SIZE / FFT_STEP;
 	while( true )
 	{
-		if( queuePcmMono.size() >= neededChunks )
-			return S_OK;
+		{
+			PcmQueueLock lock( pcmLock );
+			if( readerEof )
+				return queuePcmMono.empty() ? E_EOF : S_FALSE;
+			if( queuePcmMono.size() >= neededChunks )
+				return S_OK;
+		}
 
-		PcmMonoChunk& mono = queuePcmMono.emplace_back();
-		PcmStereoChunk* stereo = loadStereo ? &queuePcmStereo.emplace_back() : nullptr;
-		HRESULT hr = reader.readChunk( mono, stereo );
+		PcmMonoChunk mono;
+		PcmStereoChunk stereo;
+		PcmStereoChunk* stereoPtr = loadStereo ? &stereo : nullptr;
+		HRESULT hr = reader.readChunk( mono, stereoPtr );
 		if( SUCCEEDED( hr ) )
+		{
+			PcmQueueLock lock( pcmLock );
+			queuePcmMono.push_back( mono );
+			if( loadStereo )
+				queuePcmStereo.push_back( stereo );
 			continue;
-
-		queuePcmMono.pop_back();
-		if( loadStereo )
-			queuePcmStereo.pop_back();
+		}
 
 		if( hr == E_EOF )
 		{
+			PcmQueueLock lock( pcmLock );
 			readerEof = true;
-			return S_FALSE;
+			return queuePcmMono.empty() ? E_EOF : S_FALSE;
 		}
 
 		return hr;
@@ -57,6 +66,7 @@ HRESULT MelStreamer::ensurePcmChunks( size_t len )
 
 size_t MelStreamer::serializePcm( size_t startOffset )
 {
+	PcmQueueLock lock( pcmLock );
 	const ptrdiff_t chunks = (ptrdiff_t)queuePcmMono.size() - (ptrdiff_t)startOffset;
 	assert( chunks > 0 );
 
@@ -495,6 +505,7 @@ MelStreamerThread::~MelStreamerThread()
 
 HRESULT MelStreamer::copyStereoPcm( size_t offset, size_t length, std::vector<StereoSample>& buffer ) const
 {
+	PcmQueueLock lock( pcmLock );
 	if( queuePcmStereo.empty() )
 		return OLE_E_BLANK;
 
