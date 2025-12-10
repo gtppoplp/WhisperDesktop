@@ -23,6 +23,10 @@ static const LPCTSTR regValInput = L"sourceMedia";
 static const LPCTSTR regValOutFormat = L"resultFormat";
 static const LPCTSTR regValOutPath = L"resultPath";
 static const LPCTSTR regValUseInputFolder = L"useInputFolder";
+static const std::array<LPCTSTR, 4> outputExtensions =
+{
+	L".txt", L".txt", L".srt", L".vtt"
+};
 
 LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam, BOOL& bHandled )
 {
@@ -37,7 +41,8 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 	pendingState.initialize(
 		{
 			languageSelector, GetDlgItem( IDC_TRANSLATE ),
-			sourceMediaPath, GetDlgItem( IDC_BROWSE_MEDIA ),
+			fileList, GetDlgItem( IDC_ADD_FILES ),
+			GetDlgItem( IDC_REMOVE_FILE ), GetDlgItem( IDC_CLEAR_FILES ),
 			transcribeOutFormat, useInputFolder,
 			transcribeOutputPath, GetDlgItem( IDC_BROWSE_RESULT ),
 			GetDlgItem( IDCANCEL ),
@@ -58,13 +63,14 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 	progressBar.SetRange32( 0, progressMaxInteger );
 	progressBar.SetStep( 1 );
 
-	sourceMediaPath.SetWindowText( appState.stringLoad( regValInput ) );
+	lastInputPath = appState.stringLoad( regValInput );
 	transcribeOutFormat.SetCurSel( (int)appState.dwordLoad( regValOutFormat, 0 ) );
 	transcribeOutputPath.SetWindowText( appState.stringLoad( regValOutPath ) );
 	if( appState.boolLoad( regValUseInputFolder ) )
 		useInputFolder.SetCheck( BST_CHECKED );
 	BOOL unused;
 	onOutFormatChange( 0, 0, nullptr, unused );
+	updateQueueButtons();
 
 	appState.lastScreenSave( SCREEN_TRANSCRIBE );
 	appState.setupIcon( this );
@@ -114,131 +120,331 @@ void TranscribeDlg::populateOutputFormats()
 	transcribeOutFormat.AddString( L"WebVTT subtitles" );
 }
 
-// The enum values should match 0-based indices of the combobox items
-enum struct TranscribeDlg::eOutputFormat : uint8_t
-{
-	None = 0,
-	Text = 1,
-	TextTimestamps = 2,
-	SubRip = 3,
-	WebVTT = 4,
-};
-
-enum struct TranscribeDlg::eVisualState : uint8_t
-{
-	Idle = 0,
-	Running = 1,
-	Stopping = 2
-};
-
 // CBN_SELCHANGE notification for IDC_OUTPUT_FORMAT combobox
 LRESULT TranscribeDlg::onOutFormatChange( UINT, INT, HWND, BOOL& bHandled )
 {
 	BOOL enabled = transcribeOutFormat.GetCurSel() != 0;
 	useInputFolder.EnableWindow( enabled );
+	const BOOL allowFolder = ( enabled && !isChecked( useInputFolder ) ) ? TRUE : FALSE;
+	transcribeOutputPath.EnableWindow( allowFolder );
+	transcribeOutputBrowse.EnableWindow( allowFolder );
 
-	if( isChecked( useInputFolder ) && enabled )
+	return 0;
+}
+
+void TranscribeDlg::onAddFiles()
+{
+	std::vector<CString> paths;
+	CString initialDir = lastInputPath;
+	if( initialDir.GetLength() > 0 )
 	{
-		enabled = FALSE;
-		setOutputPath();
+		wchar_t* buf = initialDir.GetBuffer();
+		if( !PathRemoveFileSpec( buf ) )
+			initialDir.Empty();
+		initialDir.ReleaseBuffer();
 	}
-	transcribeOutputPath.EnableWindow( enabled );
-	transcribeOutputBrowse.EnableWindow( enabled );
+	LPCTSTR seed = initialDir.GetLength() > 0 ? (LPCTSTR)initialDir : nullptr;
+	if( !pickAudioFiles( m_hWnd, paths, seed ) )
+		return;
 
+	for( const CString& p : paths )
+	{
+		BatchItem item;
+		item.inputPath = p;
+		item.outputPath = L"";
+		item.state = eBatchState::Pending;
+		item.result = S_OK;
+		batchItems.emplace_back( item );
+	}
+	lastInputPath = paths.front();
+	refreshQueueDisplay();
+	updateQueueButtons();
+}
+
+void TranscribeDlg::onRemoveFiles()
+{
+	const int selected = fileList.GetSelCount();
+	if( selected <= 0 )
+		return;
+	std::vector<int> indices( selected );
+	if( fileList.GetSelItems( selected, indices.data() ) == LB_ERR )
+		return;
+	std::sort( indices.begin(), indices.end(), []( int left, int right ) { return left > right; } );
+	for( int idx : indices )
+	{
+		if( idx < 0 || idx >= (int)batchItems.size() )
+			continue;
+		batchItems.erase( batchItems.begin() + idx );
+	}
+	refreshQueueDisplay();
+	updateQueueButtons();
+}
+
+void TranscribeDlg::onClearFiles()
+{
+	batchItems.clear();
+	runningItem = -1;
+	refreshQueueDisplay();
+	updateQueueButtons();
+}
+
+LRESULT TranscribeDlg::onQueueSelectionChanged( UINT, INT, HWND, BOOL& )
+{
+	updateQueueButtons();
 	return 0;
 }
 
-// EN_CHANGE notification for IDC_PATH_MEDIA edit box
-LRESULT TranscribeDlg::onInputChange( UINT, INT, HWND, BOOL& )
+CString TranscribeDlg::formatStatus( eBatchState state, HRESULT hr )
 {
-	if( !useInputFolder.IsWindowEnabled() )
-		return 0;
-	if( !isChecked( useInputFolder ) )
-		return 0;
-	setOutputPath();
-	return 0;
+	switch( state )
+	{
+	case eBatchState::Pending:
+		return L"Pending";
+	case eBatchState::Running:
+		return L"Running";
+	case eBatchState::Completed:
+		return L"Done";
+	case eBatchState::Failed:
+	{
+		CString txt;
+		txt.Format( L"Failed (0x%08X)", hr );
+		return txt;
+	}
+	default:
+		return L"";
+	}
 }
 
-void TranscribeDlg::onBrowseMedia()
+void TranscribeDlg::refreshQueueDisplay()
 {
-	LPCTSTR title = L"Input audio file to transcribe";
-	LPCTSTR filters = L"Multimedia Files\0*.wav;*.wave;*.mp3;*.wma;*.mp4;*.mpeg4;*.mkv;*.m4a\0\0";
-
-	CString path;
-	sourceMediaPath.GetWindowText( path );
-	if( !getOpenFileName( m_hWnd, title, filters, path ) )
-		return;
-	sourceMediaPath.SetWindowText( path );
-	if( useInputFolder.IsWindowEnabled() && useInputFolder.GetCheck() == BST_CHECKED )
-		setOutputPath( path );
+	fileList.ResetContent();
+	for( const BatchItem& item : batchItems )
+	{
+		CString text = formatStatus( item.state, item.result );
+		text += L" - ";
+		LPCTSTR name = PathFindFileName( item.inputPath );
+		text += name;
+		fileList.AddString( text );
+	}
 }
 
-static const LPCTSTR outputFilters = L"Text files (*.txt)\0*.txt\0Text with timestamps (*.txt)\0*.txt\0SubRip subtitles (*.srt)\0*.srt\0WebVTT subtitles (*.vtt)\0*.vtt\0\0";
-static const std::array<LPCTSTR, 4> outputExtensions =
+void TranscribeDlg::updateQueueButtons()
 {
-	L".txt", L".txt", L".srt", L".vtt"
-};
-
-void TranscribeDlg::setOutputPath( const CString& input )
-{
-	const int format = transcribeOutFormat.GetCurSel() - 1;
-	if( format < 0 || format >= outputExtensions.size() )
-		return;
-	const LPCTSTR ext = outputExtensions[ format ];
-	CString path = input;
-	path.Trim();
-	const bool renamed = PathRenameExtension( path.GetBufferSetLength( path.GetLength() + 4 ), ext );
-	path.ReleaseBuffer();
-	if( !renamed )
-		return;
-	transcribeOutputPath.SetWindowText( path );
+	const BOOL hasItems = batchItems.empty() ? FALSE : TRUE;
+	const int selection = fileList.GetSelCount();
+	const BOOL canEdit = ( transcribeArgs.visualState == eVisualState::Idle ) ? TRUE : FALSE;
+	CWindow addBtn = GetDlgItem( IDC_ADD_FILES );
+	CWindow removeBtn = GetDlgItem( IDC_REMOVE_FILE );
+	CWindow clearBtn = GetDlgItem( IDC_CLEAR_FILES );
+	if( addBtn )
+		addBtn.EnableWindow( canEdit );
+	if( removeBtn )
+		removeBtn.EnableWindow( canEdit && selection > 0 );
+	if( clearBtn )
+		clearBtn.EnableWindow( canEdit && hasItems );
 }
 
-void TranscribeDlg::setOutputPath()
+bool TranscribeDlg::ensureOutputFolder( CString& folder )
 {
-	CString path;
-	if( !sourceMediaPath.GetWindowText( path ) )
-		return;
-	if( path.GetLength() <= 0 )
-		return;
-	setOutputPath( path );
+	folder.Trim();
+	if( folder.IsEmpty() )
+	{
+		transcribeError( L"Please choose an output folder." );
+		return false;
+	}
+	DWORD attrs = GetFileAttributes( folder );
+	if( attrs == INVALID_FILE_ATTRIBUTES || ( attrs & FILE_ATTRIBUTE_DIRECTORY ) == 0 )
+	{
+		CString msg = L"The output folder does not exist:\n";
+		msg += folder;
+		transcribeError( msg );
+		return false;
+	}
+	return true;
 }
+
+CString TranscribeDlg::composeOutputPath( const CString& input, const CString& explicitFolder ) const
+{
+	CString folder = explicitFolder;
+	if( folder.IsEmpty() )
+	{
+		folder = input;
+		wchar_t* buf = folder.GetBuffer();
+		PathRemoveFileSpec( buf );
+		folder.ReleaseBuffer();
+	}
+
+	CString fileName = PathFindFileName( input );
+	CString baseName = fileName;
+	wchar_t* base = baseName.GetBuffer();
+	PathRemoveExtension( base );
+	baseName.ReleaseBuffer();
+	const int formatIndex = (int)transcribeArgs.format - 1;
+	LPCTSTR ext = ( formatIndex >= 0 && formatIndex < (int)outputExtensions.size() ) ? outputExtensions[ formatIndex ] : L".txt";
+	CString targetName = baseName;
+	targetName += ext;
+
+	wchar_t combined[ MAX_PATH ] = {};
+	CString result;
+	if( PathCombine( combined, folder, targetName ) != nullptr )
+		result = combined;
+	else
+	{
+		result = folder;
+		if( !result.IsEmpty() && result[ result.GetLength() - 1 ] != L'\\' )
+			result += L'\\';
+		result += targetName;
+	}
+	return result;
+}
+
+bool TranscribeDlg::prepareBatchItems( const CString& explicitFolder )
+{
+	if( batchItems.empty() )
+	{
+		transcribeError( L"Please add at least one audio file." );
+		return false;
+	}
+	for( const BatchItem& item : batchItems )
+	{
+		if( PathFileExists( item.inputPath ) )
+			continue;
+		CString msg = L"Input audio file does not exist:\n";
+		msg += item.inputPath;
+		transcribeError( msg, HRESULT_FROM_WIN32( ERROR_FILE_NOT_FOUND ) );
+		return false;
+	}
+
+	bool needOverwritePrompt = false;
+	for( BatchItem& item : batchItems )
+	{
+		item.state = eBatchState::Pending;
+		item.result = S_OK;
+		if( transcribeArgs.format == eOutputFormat::None )
+		{
+			item.outputPath.Empty();
+			continue;
+		}
+		item.outputPath = composeOutputPath( item.inputPath, explicitFolder );
+		if( PathFileExists( item.outputPath ) )
+			needOverwritePrompt = true;
+	}
+
+	if( needOverwritePrompt )
+	{
+		const int resp = MessageBox( L"Some output files already exist.\nOverwrite all of them?", L"Confirm Overwrite", MB_ICONQUESTION | MB_YESNO );
+		if( resp != IDYES )
+			return false;
+	}
+
+	runningItem = -1;
+	refreshQueueDisplay();
+	return true;
+}
+
+bool TranscribeDlg::startNextItem()
+{
+	if( transcribeArgs.visualState != eVisualState::Running )
+		return false;
+	for( size_t i = 0; i < batchItems.size(); i++ )
+	{
+		BatchItem& item = batchItems[ i ];
+		if( item.state != eBatchState::Pending )
+			continue;
+		item.state = eBatchState::Running;
+		runningItem = (int)i;
+		transcribeArgs.pathMedia = item.inputPath;
+		transcribeArgs.pathOutput = item.outputPath;
+		progressBar.SetPos( 0 );
+		refreshQueueDisplay();
+		HRESULT hr = work.post();
+		if( FAILED( hr ) )
+		{
+			finalizeCurrentItem( hr );
+			transcribeError( L"Unable to queue transcription", hr );
+			return false;
+		}
+		return true;
+	}
+	return false;
+}
+
+void TranscribeDlg::finalizeCurrentItem( HRESULT hr )
+{
+	if( runningItem < 0 || runningItem >= (int)batchItems.size() )
+		return;
+	BatchItem& item = batchItems[ runningItem ];
+	item.result = hr;
+	item.state = FAILED( hr ) ? eBatchState::Failed : eBatchState::Completed;
+	runningItem = -1;
+	refreshQueueDisplay();
+	if( FAILED( hr ) )
+	{
+		CString msg = L"Transcribe failed";
+		if( transcribeArgs.errorMessage.GetLength() > 0 )
+		{
+			msg += L"\n";
+			msg += transcribeArgs.errorMessage;
+		}
+		transcribeError( msg, hr );
+	}
+}
+
+void TranscribeDlg::finishBatch( bool canceled )
+{
+	transcribeArgs.visualState = eVisualState::Idle;
+	setPending( false );
+	transcribeButton.SetWindowText( L"Transcribe" );
+	transcribeButton.EnableWindow( TRUE );
+	progressBar.SetPos( 0 );
+	updateQueueButtons();
+
+	size_t completed = 0;
+	size_t failed = 0;
+	size_t pending = 0;
+	for( const BatchItem& item : batchItems )
+	{
+		switch( item.state )
+		{
+		case eBatchState::Completed:
+			completed++;
+			break;
+		case eBatchState::Failed:
+			failed++;
+			break;
+		case eBatchState::Pending:
+			pending++;
+			break;
+		default:
+			break;
+		}
+	}
+	CString summary;
+	if( canceled )
+		summary = L"Batch stopped before processing all files.";
+	else
+		summary = L"Completed batch transcription.";
+	summary.AppendFormat( L"\nDone: %zu\nFailed: %zu", completed, failed );
+	if( pending > 0 )
+		summary.AppendFormat( L"\nPending: %zu", pending );
+	MessageBox( summary, L"Transcribe", MB_OK | MB_ICONINFORMATION );
+}
+
 
 void TranscribeDlg::onInputFolderCheck()
 {
-	const bool checked = isChecked( useInputFolder );
-
-	BOOL enableOutput = checked ? FALSE : TRUE;
-	transcribeOutputPath.EnableWindow( enableOutput );
-	transcribeOutputBrowse.EnableWindow( enableOutput );
-
-	if( !checked )
-		return;
-	setOutputPath();
+	const BOOL allowFolder = ( transcribeOutFormat.GetCurSel() != 0 && !isChecked( useInputFolder ) ) ? TRUE : FALSE;
+	transcribeOutputPath.EnableWindow( allowFolder );
+	transcribeOutputBrowse.EnableWindow( allowFolder );
 }
 
 void TranscribeDlg::onBrowseOutput()
 {
-	const DWORD origFilterIndex = (DWORD)transcribeOutFormat.GetCurSel() - 1;
-
-	LPCTSTR title = L"Output Text File";
-	CString path;
-	transcribeOutputPath.GetWindowText( path );
-	DWORD filterIndex = origFilterIndex;
-	if( !getSaveFileName( m_hWnd, title, outputFilters, path, &filterIndex ) )
+	CString folder;
+	transcribeOutputPath.GetWindowText( folder );
+	if( !browseForFolder( m_hWnd, folder ) )
 		return;
-
-	LPCTSTR ext = PathFindExtension( path );
-	if( 0 == *ext && filterIndex < outputExtensions.size() )
-	{
-		wchar_t* const buffer = path.GetBufferSetLength( path.GetLength() + 5 );
-		PathRenameExtension( buffer, outputExtensions[ filterIndex ] );
-		path.ReleaseBuffer();
-	}
-
-	transcribeOutputPath.SetWindowText( path );
-	if( filterIndex != origFilterIndex )
-		transcribeOutFormat.SetCurSel( filterIndex + 1 );
+	transcribeOutputPath.SetWindowText( folder );
 }
 
 void TranscribeDlg::setPending( bool nowPending )
@@ -263,55 +469,40 @@ void TranscribeDlg::onTranscribe()
 		return;
 	}
 
-	// Validate input
-	sourceMediaPath.GetWindowText( transcribeArgs.pathMedia );
-	if( transcribeArgs.pathMedia.GetLength() <= 0 )
-	{
-		transcribeError( L"Please select an input audio file" );
-		return;
-	}
-
-	if( !PathFileExists( transcribeArgs.pathMedia ) )
-	{
-		transcribeError( L"Input audio file does not exist", HRESULT_FROM_WIN32( ERROR_FILE_NOT_FOUND ) );
-		return;
-	}
-
 	transcribeArgs.language = languageSelector.selectedLanguage();
 	transcribeArgs.translate = cbTranslate.checked();
 	if( isInvalidTranslate( m_hWnd, transcribeArgs.language, transcribeArgs.translate ) )
 		return;
 
 	transcribeArgs.format = (eOutputFormat)(uint8_t)transcribeOutFormat.GetCurSel();
-	if( transcribeArgs.format != eOutputFormat::None )
-	{
-		transcribeOutputPath.GetWindowText( transcribeArgs.pathOutput );
-		if( transcribeArgs.pathOutput.GetLength() <= 0 )
-		{
-			transcribeError( L"Please select an output text file" );
-			return;
-		}
-		if( PathFileExists( transcribeArgs.pathOutput ) )
-		{
-			const int resp = MessageBox( L"The output file is already there.\nOverwrite the file?", L"Confirm Overwrite", MB_ICONQUESTION | MB_YESNO );
-			if( resp != IDYES )
-				return;
-		}
-		appState.stringStore( regValOutPath, transcribeArgs.pathOutput );
-	}
-	else
+	CString explicitFolder;
+	if( transcribeArgs.format == eOutputFormat::None )
 		cbConsole.ensureChecked();
+	else if( !isChecked( useInputFolder ) )
+	{
+		transcribeOutputPath.GetWindowText( explicitFolder );
+		if( !ensureOutputFolder( explicitFolder ) )
+			return;
+	}
 
 	appState.dwordStore( regValOutFormat, (uint32_t)(int)transcribeArgs.format );
 	appState.boolStore( regValUseInputFolder, isChecked( useInputFolder ) );
 	languageSelector.saveSelection( appState );
 	cbTranslate.saveSelection( appState );
-	appState.stringStore( regValInput, transcribeArgs.pathMedia );
+	if( !explicitFolder.IsEmpty() )
+		appState.stringStore( regValOutPath, explicitFolder );
+	if( !batchItems.empty() )
+		appState.stringStore( regValInput, batchItems.front().inputPath );
+
+	if( !prepareBatchItems( explicitFolder ) )
+		return;
 
 	setPending( true );
 	transcribeArgs.visualState = eVisualState::Running;
 	transcribeButton.SetWindowText( L"Stop" );
-	work.post();
+	updateQueueButtons();
+	if( !startNextItem() )
+		finishBatch( true );
 }
 
 void __stdcall TranscribeDlg::poolCallback() noexcept
@@ -338,48 +529,21 @@ static void printTime( CString& rdi, int64_t ticks )
 	rdi.AppendFormat( L"%.3f seconds", (double)ticks / 1E7 );
 }
 
-LRESULT TranscribeDlg::onCallbackStatus( UINT, WPARAM wParam, LPARAM, BOOL& bHandled )
+LRESULT TranscribeDlg::onCallbackStatus( UINT, WPARAM wParam, LPARAM, BOOL& )
 {
-	setPending( false );
-	transcribeButton.SetWindowText( L"Transcribe" );
-	transcribeButton.EnableWindow( TRUE );
-	const bool prematurely = ( transcribeArgs.visualState == eVisualState::Stopping );
-	transcribeArgs.visualState = eVisualState::Idle;
-
 	const HRESULT hr = (HRESULT)wParam;
-	if( FAILED( hr ) )
+	finalizeCurrentItem( hr );
+
+	if( transcribeArgs.visualState == eVisualState::Stopping )
 	{
-		LPCTSTR failMessage = L"Transcribe failed";
-
-		if( transcribeArgs.errorMessage.GetLength() > 0 )
-		{
-			CString tmp = failMessage;
-			tmp += L"\n";
-			tmp += transcribeArgs.errorMessage;
-			transcribeError( tmp, hr );
-		}
-		else
-			transcribeError( failMessage, hr );
-
+		finishBatch( true );
 		return 0;
 	}
 
-	const int64_t elapsed = ( GetTickCount64() - transcribeArgs.startTime ) * 10'000;
-	const int64_t media = transcribeArgs.mediaDuration;
-	CString message;
-	if( prematurely )
-		message = L"Transcribed an initial portion of the audio";
-	else
-		message = L"Transcribed the audio";
-	message += L"\nMedia duration: ";
-	printTime( message, media );
-	message += L"\nProcessing time: ";
-	printTime( message, elapsed );
-	message += L"\nRelative processing speed: ";
-	double mul = (double)media / (double)elapsed;
-	message.AppendFormat( L"%g", mul );
+	if( startNextItem() )
+		return 0;
 
-	MessageBox( message, L"Transcribe Completed", MB_OK | MB_ICONINFORMATION );
+	finishBatch( false );
 	return 0;
 }
 

@@ -40,7 +40,7 @@ namespace
 
 HRESULT AppState::startup()
 {
-	HRESULT hr = CoInitializeEx( nullptr, COINIT_MULTITHREADED );
+	HRESULT hr = CoInitializeEx( nullptr, COINIT_APARTMENTTHREADED );
 	if( FAILED( hr ) )
 	{
 		reportFatalError( "CoInitializeEx failed", hr );

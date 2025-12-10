@@ -1,6 +1,7 @@
 #pragma once
 #include <iContext.h>
 #include "logger.h"
+#include <vector>
 
 CString formatErrorMessage( HRESULT hr );
 
@@ -39,6 +40,10 @@ void makeUtf8( CStringA& rdi, const CString& utf16 );
 bool getOpenFileName( HWND owner, LPCTSTR title, LPCTSTR filter, CString& path );
 
 bool getSaveFileName( HWND owner, LPCTSTR title, LPCTSTR filter, CString& path, DWORD* filterIndex = nullptr );
+
+bool pickAudioFiles( HWND owner, std::vector<CString>& paths, LPCTSTR initialDirectory = nullptr );
+
+bool browseForFolder( HWND owner, CString& path );
 
 #define ON_BUTTON_CLICK( id, func )  \
 	if( uMsg == WM_COMMAND &&        \

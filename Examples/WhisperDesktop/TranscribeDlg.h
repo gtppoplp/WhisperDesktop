@@ -29,19 +29,21 @@ public:
 		ON_BUTTON_CLICK( IDCANCEL, onClose )
 		ON_BUTTON_CLICK( IDC_BACK, onBack )
 		ON_BUTTON_CLICK( IDC_USE_INPUT_FOLDER, onInputFolderCheck )
-		ON_BUTTON_CLICK( IDC_BROWSE_MEDIA, onBrowseMedia )
+		ON_BUTTON_CLICK( IDC_ADD_FILES, onAddFiles )
+		ON_BUTTON_CLICK( IDC_REMOVE_FILE, onRemoveFiles )
+		ON_BUTTON_CLICK( IDC_CLEAR_FILES, onClearFiles )
 		ON_BUTTON_CLICK( IDC_BROWSE_RESULT, onBrowseOutput )
 		ON_BUTTON_CLICK( IDC_TRANSCRIBE, onTranscribe )
 		ON_BUTTON_CLICK( IDC_CAPTURE, onCapture )
 		COMMAND_HANDLER( IDC_OUTPUT_FORMAT, CBN_SELCHANGE, onOutFormatChange )
-		COMMAND_HANDLER( IDC_PATH_MEDIA, EN_CHANGE, onInputChange )
+		COMMAND_HANDLER( IDC_FILE_LIST, LBN_SELCHANGE, onQueueSelectionChanged )
 		MESSAGE_HANDLER( WM_CALLBACK_STATUS, onCallbackStatus )
 		MSG_WM_CLOSE( onWmClose )
 	END_MSG_MAP()
 
 	BEGIN_DDX_MAP( LoadModelDlg )
 		DDX_CONTROL_HANDLE( IDC_MODEL_DESC, modelDesc )
-		DDX_CONTROL_HANDLE( IDC_PATH_MEDIA, sourceMediaPath )
+		DDX_CONTROL_HANDLE( IDC_FILE_LIST, fileList )
 		DDX_CONTROL_HANDLE( IDC_OUTPUT_FORMAT, transcribeOutFormat )
 		DDX_CONTROL_HANDLE( IDC_USE_INPUT_FOLDER, useInputFolder )
 		DDX_CONTROL_HANDLE( IDC_PATH_RESULT, transcribeOutputPath )
@@ -73,7 +75,7 @@ private:
 	LanguageDropdown languageSelector;
 	TranslateCheckbox cbTranslate;
 
-	CEdit sourceMediaPath;
+	CListBox fileList;
 	CButton useInputFolder;
 	CEdit transcribeOutputPath;
 	CButton transcribeOutputBrowse;
@@ -83,9 +85,11 @@ private:
 	void populateOutputFormats();
 
 	LRESULT onOutFormatChange( UINT, INT, HWND, BOOL& bHandled );
-	LRESULT onInputChange( UINT, INT, HWND, BOOL& );
 	void onInputFolderCheck();
-	void onBrowseMedia();
+	void onAddFiles();
+	void onRemoveFiles();
+	void onClearFiles();
+	LRESULT onQueueSelectionChanged( UINT, INT, HWND, BOOL& );
 	void onBrowseOutput();
 	// Despite the name, the method also handles the "Stop" button
 	void onTranscribe();
@@ -96,8 +100,30 @@ private:
 
 	ThreadPoolWork work;
 
-	enum struct eOutputFormat : uint8_t;
-	enum struct eVisualState : uint8_t;
+	// The enum values should match 0-based indices of the combobox items
+	enum struct eOutputFormat : uint8_t
+	{
+		None = 0,
+		Text = 1,
+		TextTimestamps = 2,
+		SubRip = 3,
+		WebVTT = 4,
+	};
+
+	enum struct eVisualState : uint8_t
+	{
+		Idle = 0,
+		Running = 1,
+		Stopping = 2
+	};
+
+	enum struct eBatchState : uint8_t
+	{
+		Pending = 0,
+		Running = 1,
+		Completed = 2,
+		Failed = 3
+	};
 
 	struct TranscribeArgs
 	{
@@ -113,6 +139,27 @@ private:
 		CString errorMessage;
 	};
 	TranscribeArgs transcribeArgs;
+	CString lastInputPath;
+
+	struct BatchItem
+	{
+		CString inputPath;
+		CString outputPath;
+		eBatchState state = eBatchState::Pending;
+		HRESULT result = S_OK;
+	};
+	std::vector<BatchItem> batchItems;
+	int runningItem = -1;
+
+	static CString formatStatus( eBatchState state, HRESULT hr );
+	void refreshQueueDisplay();
+	void updateQueueButtons();
+	bool prepareBatchItems( const CString& explicitFolder );
+	bool ensureOutputFolder( CString& folder );
+	CString composeOutputPath( const CString& input, const CString& explicitFolder ) const;
+	bool startNextItem();
+	void finalizeCurrentItem( HRESULT hr );
+	void finishBatch( bool canceled );
 
 	void __stdcall poolCallback() noexcept override final;
 
@@ -133,8 +180,4 @@ private:
 	HRESULT progressCallback( double p ) noexcept;
 
 	void onWmClose();
-	// Populate output path based on the provided input media path
-	void setOutputPath( const CString& input );
-	// Populate output path based on the input media path in the edit box
-	void setOutputPath();
 };

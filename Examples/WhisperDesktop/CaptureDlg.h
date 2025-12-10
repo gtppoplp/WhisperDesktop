@@ -113,12 +113,12 @@ private:
 
 	struct sThreadState
 	{
-		volatile bool stopRequested;
-		bool translate;
-		eTextFlags flags;
-		CAtlFile* file;
-		uint32_t language;
-		Whisper::sCaptureParams captureParams;
+		volatile bool stopRequested = false;
+		bool translate = false;
+		eTextFlags flags = (eTextFlags)0;
+		CAtlFile* file = nullptr;
+		uint32_t language = 0;
+		Whisper::sCaptureParams captureParams{};
 		CString endpoint;
 		CString textOutputPath;
 		CString errorMessage;

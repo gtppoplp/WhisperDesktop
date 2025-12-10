@@ -123,7 +123,7 @@ void CaptureDlg::onDeviceRefresh()
 	const size_t len = devices.size();
 	if( len == 0 )
 	{
-		MessageBox( L"No capture devices found on this computer.\nIf you have a USB microphone, connect it to this PC,\nand press “refresh” button.",
+		MessageBox( L"No capture devices found on this computer.\nIf you have a USB microphone, connect it to this PC,\nand press “refresh?button.",
 			L"Capture Devices", MB_OK | MB_ICONWARNING );
 	}
 	else

@@ -53,6 +53,10 @@
 #define IDC_USE_INPUT_FOLDER            1029
 #define IDC_RESHAPED_MAT_MUL2           1030
 #define IDC_GPU                         1030
+#define IDC_FILE_LIST                   1031
+#define IDC_ADD_FILES                   1032
+#define IDC_REMOVE_FILE                 1033
+#define IDC_CLEAR_FILES                 1034
 #define IDC_STATIC                      -1
 
 // Next default values for new objects

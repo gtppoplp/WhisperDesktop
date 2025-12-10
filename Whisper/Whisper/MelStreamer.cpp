@@ -434,8 +434,9 @@ HRESULT MelStreamerThread::makeBuffer( size_t off, size_t len, const float** buf
 				break;
 
 			const eThreadStatus ts = threadStatus;
-			if( ts == eThreadStatus::Working || ts == eThreadStatus::Idle )
+			if( ts == eThreadStatus::Working || ts == eThreadStatus::Idle || ts == eThreadStatus::NotStarted )
 			{
+				// Allow the producer thread to initialize or continue filling the queue.
 				WakeAllConditionVariable( &wakeBackground );
 				SleepConditionVariableCS( &wakeMain, &m_cs.m_sec, INFINITE );
 				continue;

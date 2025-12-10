@@ -1,5 +1,6 @@
 ﻿#include "stdafx.h"
 #include "miscUtils.h"
+#pragma comment(lib, "Shell32.lib")
 
 namespace
 {
@@ -177,7 +178,7 @@ bool getOpenFileName( HWND owner, LPCTSTR title, LPCTSTR filter, CString& path )
 
 	if( !GetOpenFileName( &ofn ) )
 	{
-		path = L"";
+		path = L""; 
 		return false;
 	}
 	else
@@ -185,6 +186,108 @@ bool getOpenFileName( HWND owner, LPCTSTR title, LPCTSTR filter, CString& path )
 		path = ofn.lpstrFile;
 		return true;
 	}
+}
+
+namespace
+{
+	static const COMDLG_FILTERSPEC s_audioFilters[] =
+	{
+		{ L"Multimedia Files", L"*.wav;*.wave;*.mp3;*.wma;*.mp4;*.mpeg4;*.mkv;*.m4a" }
+	};
+}
+
+bool pickAudioFiles( HWND owner, std::vector<CString>& paths, LPCTSTR initialDirectory )
+{
+	paths.clear();
+	CComPtr<IFileOpenDialog> dialog;
+	HRESULT hr = dialog.CoCreateInstance( __uuidof( FileOpenDialog ) );
+	if( FAILED( hr ) )
+		return false;
+
+	DWORD options = 0;
+	if( SUCCEEDED( dialog->GetOptions( &options ) ) )
+		dialog->SetOptions( options | FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM );
+	else
+		dialog->SetOptions( FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM );
+
+	dialog->SetTitle( L"Audio Files to Transcribe" );
+	if( initialDirectory != nullptr && initialDirectory[ 0 ] != 0 )
+	{
+		CComPtr<IShellItem> folder;
+		if( SUCCEEDED( SHCreateItemFromParsingName( initialDirectory, nullptr, IID_PPV_ARGS( &folder ) ) ) )
+			dialog->SetFolder( folder );
+	}
+	dialog->SetFileTypes( _countof( s_audioFilters ), s_audioFilters );
+	dialog->SetFileTypeIndex( 1 );
+
+	hr = dialog->Show( owner );
+	if( hr == HRESULT_FROM_WIN32( ERROR_CANCELLED ) )
+		return false;
+	if( FAILED( hr ) )
+		return false;
+
+	CComPtr<IShellItemArray> results;
+	hr = dialog->GetResults( &results );
+	if( FAILED( hr ) )
+		return false;
+
+	DWORD count = 0;
+	if( FAILED( results->GetCount( &count ) ) || count == 0 )
+		return false;
+
+	for( DWORD i = 0; i < count; i++ )
+	{
+		CComPtr<IShellItem> item;
+		if( FAILED( results->GetItemAt( i, &item ) ) )
+			continue;
+		LPWSTR path = nullptr;
+		if( SUCCEEDED( item->GetDisplayName( SIGDN_FILESYSPATH, &path ) ) )
+		{
+			paths.emplace_back( path );
+			CoTaskMemFree( path );
+		}
+	}
+	return !paths.empty();
+}
+
+bool browseForFolder( HWND owner, CString& path )
+{
+	CComPtr<IFileOpenDialog> dialog;
+	HRESULT hr = dialog.CoCreateInstance( __uuidof( FileOpenDialog ) );
+	if( FAILED( hr ) )
+		return false;
+
+	DWORD options = 0;
+	if( SUCCEEDED( dialog->GetOptions( &options ) ) )
+		dialog->SetOptions( options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM );
+	else
+		dialog->SetOptions( FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM );
+	dialog->SetTitle( L"Select Output Folder" );
+
+	if( path.GetLength() > 0 )
+	{
+		CComPtr<IShellItem> folder;
+		if( SUCCEEDED( SHCreateItemFromParsingName( path, nullptr, IID_PPV_ARGS( &folder ) ) ) )
+			dialog->SetFolder( folder );
+	}
+
+	hr = dialog->Show( owner );
+	if( hr == HRESULT_FROM_WIN32( ERROR_CANCELLED ) )
+		return false;
+	if( FAILED( hr ) )
+		return false;
+
+	CComPtr<IShellItem> item;
+	if( FAILED( dialog->GetResult( &item ) ) )
+		return false;
+
+	LPWSTR folder = nullptr;
+	if( FAILED( item->GetDisplayName( SIGDN_FILESYSPATH, &folder ) ) )
+		return false;
+
+	path = folder;
+	CoTaskMemFree( folder );
+	return true;
 }
 
 bool getSaveFileName( HWND owner, LPCTSTR title, LPCTSTR filter, CString& path, DWORD* filterIndex )
