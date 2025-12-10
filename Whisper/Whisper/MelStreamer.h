@@ -36,9 +36,9 @@ namespace Whisper
 		// At the end of the stream, the method delivers less chunks then requested and returns S_FALSE
 		HRESULT ensurePcmChunks( size_t len );
 
-		// Copy mono PCM chunks from the queue (starting at the specified element index) into the continuous tempPcm vector
-		// Returns count of chunks copied there.
-		size_t serializePcm( size_t startOffset );
+		// Copy mono PCM chunks starting from the specified absolute chunk index into tempPcm
+		// Returns count of chunks copied; zero means the requested range has been trimmed away.
+		size_t serializePcm( size_t startChunkAbsolute );
 
 		size_t lastBufferEnd = ~(size_t)0;
 		float lastBufferMax = 0.0f;

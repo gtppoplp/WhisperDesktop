@@ -64,16 +64,22 @@ HRESULT MelStreamer::ensurePcmChunks( size_t len )
 	}
 }
 
-size_t MelStreamer::serializePcm( size_t startOffset )
+size_t MelStreamer::serializePcm( size_t startChunkAbsolute )
 {
 	PcmQueueLock lock( pcmLock );
-	const ptrdiff_t chunks = (ptrdiff_t)queuePcmMono.size() - (ptrdiff_t)startOffset;
-	assert( chunks > 0 );
+	if( startChunkAbsolute < streamStartOffset )
+		return 0;
+	const size_t relativeOffset = startChunkAbsolute - streamStartOffset;
+	if( relativeOffset >= queuePcmMono.size() )
+		return 0; // Caller requested data that has been trimmed or not yet produced
+	const size_t chunks = queuePcmMono.size() - relativeOffset;
+	if( chunks == 0 )
+		return 0;
 
 	tempPcm.resize( chunks * FFT_STEP );
 	float* rdi = tempPcm.data();
 
-	for( auto it = queuePcmMono.begin() + startOffset; it != queuePcmMono.end(); it++ )
+	for( auto it = queuePcmMono.begin() + relativeOffset; it != queuePcmMono.end(); it++ )
 	{
 		memcpy( rdi, it->mono.data(), FFT_STEP * 4 );
 		rdi += FFT_STEP;
@@ -210,7 +216,7 @@ HRESULT MelStreamerSimple::makeBuffer( size_t off, size_t len, const float** buf
 	{
 		CHECK( ensurePcmChunks( len ) );
 
-		const size_t pcmChunks = serializePcm( availableMel );
+		const size_t pcmChunks = serializePcm( streamStartOffset + availableMel );
 		const size_t missingMelChunks = len - availableMel;
 		size_t i;
 		const size_t loop1 = std::min( missingMelChunks, pcmChunks );
@@ -295,6 +301,7 @@ HRESULT MelStreamerThread::threadMain()
 		// Count of MEL chunks remaining in the whole stream
 		// availableMel of them are already on the queue
 		const ptrdiff_t remainingMel = (ptrdiff_t)getLength() - (ptrdiff_t)streamStartOffset;
+		const size_t startAbsolute = streamStartOffset + (size_t)availableMel;
 		LeaveCriticalSection( &m_cs.m_sec );
 
 		const ptrdiff_t missingChunks = prebufferChunks - availableMel;
@@ -304,9 +311,12 @@ HRESULT MelStreamerThread::threadMain()
 			return S_OK; // This thread has produced all chunks of the stream
 
 		CHECK( ensurePcmChunks( availableMel + chunks ) );
-		const size_t pcmChunks = serializePcm( availableMel );
+		const size_t pcmChunks = serializePcm( startAbsolute );
 		if( 0 == pcmChunks )
-			return S_OK;
+		{
+			EnterCriticalSection( &m_cs.m_sec );
+			continue;
+		}
 
 		pendingChunks.clear();
 
