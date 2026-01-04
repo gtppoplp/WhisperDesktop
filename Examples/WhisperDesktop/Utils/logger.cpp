@@ -46,7 +46,6 @@ HRESULT logNewSegments( const iTranscribeResult* results, size_t newSegments, bo
 	size_t i = len - newSegments;
 
 	const sSegment* const segments = results->getSegments();
-	const sToken* const tokens = results->getTokens();
 
 	CStringA str;
 	for( ; i < len; i++ )
@@ -58,15 +57,13 @@ HRESULT logNewSegments( const iTranscribeResult* results, size_t newSegments, bo
 		printTime( str, seg.time.end );
 		str += "]  ";
 
-		for( uint32_t j = 0; j < seg.countTokens; j++ )
+		// Use segment text directly to avoid issues with split UTF-8 sequences
+		// When Whisper processes Chinese text, it may split UTF-8 bytes across tokens
+		if( seg.text != nullptr )
 		{
-			const sToken& tok = tokens[ seg.firstToken + j ];
-			if( !printSpecial && ( tok.flags & eTokenFlags::Special ) )
-				continue;
-			str += k_colors[ colorIndex( tok ) ];
-			str += tok.text;
-			str += "\033[0m";
+			str += seg.text;
 		}
+		
 		logInfo( u8"%s", cstr( str ) );
 	}
 

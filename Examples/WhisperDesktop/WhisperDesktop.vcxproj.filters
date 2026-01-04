@@ -113,12 +113,6 @@
     <ClCompile Include="Utils\PendingState.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Utils\DebugConsole.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Utils\logger.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="CaptureDlg.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -132,6 +126,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="useDiscreteGpu.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Utils\logger.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Utils\DebugConsole.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

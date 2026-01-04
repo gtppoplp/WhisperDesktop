@@ -124,9 +124,9 @@
     <ClCompile Include="useDiscreteGpu.c">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="Utils\TranslateCheckbox.cpp" />
     <ClCompile Include="Utils\DebugConsole.cpp" />
     <ClCompile Include="Utils\logger.cpp" />
+    <ClCompile Include="Utils\TranslateCheckbox.cpp" />
     <ClCompile Include="Utils\PendingState.cpp" />
     <ClCompile Include="Utils\LanguageDropdown.cpp" />
     <ClCompile Include="LoadModelDlg.cpp" />
