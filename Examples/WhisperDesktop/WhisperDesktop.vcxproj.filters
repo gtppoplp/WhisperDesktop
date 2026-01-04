@@ -150,5 +150,6 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="Readme.txt" />
+    <Text Include="chinese_resources.txt" />
   </ItemGroup>
 </Project>
