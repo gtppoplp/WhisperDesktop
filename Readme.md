@@ -18,6 +18,67 @@ WhisperDesktop 是一个运行在 **Windows 64 位**上的本地语音转文字�
 
 ---
 
+## 源码运行说明
+
+如果是从源码运行，而不是直接使用 `Releases` 中的程序，建议按下面顺序操作。
+
+### 1. 使用 Visual Studio 打开并生成
+
+1. 使用 Visual Studio 打开解决方案
+2. 选择 `x64` 平台与 `Debug` 或 `Release` 配置
+3. **先生成 `ComputeShaders` 项目**，再生成整个解决方案
+
+> `ComputeShaders` 会生成 `Whisper\D3D\shaderData-Debug.inl` / `shaderData-Release.inl`。  
+> 如果出现 `E1696: 无法打开源文件 "shaderData-Debug.inl"`，通常就是这个生成步骤还没执行。
+
+### 2. 运行桌面程序
+
+将 `Examples\WhisperDesktop\WhisperDesktop.vcxproj` 设为启动项目后直接运行即可。
+
+首次运行时仍需自行准备 Whisper 模型文件，例如：
+
+- `models\ggml-medium.bin`
+- `models\ggml-small.bin`
+
+### 3. 命令行运行 .NET 示例
+
+仓库中还包含基于 `WhisperNet` 的 .NET 6 示例。下面是常见运行方式。
+
+#### 转录音频文件
+
+```powershell
+dotnet run --project Examples\TranscribeCS\TranscribeCS.csproj -c Debug -p:Platform=x64 -- -m models\ggml-medium.bin -l zh -otxt .\sample.wav
+```
+
+说明：
+
+- `-m`：指定模型文件
+- `-l zh`：指定语言为中文
+- `-otxt`：同时输出 `.txt` 文本结果
+
+#### 列出麦克风设备
+
+```powershell
+dotnet run --project Examples\MicrophoneCS\MicrophoneCS.csproj -c Debug -p:Platform=x64 -- -ld
+```
+
+#### 使用指定麦克风实时转录
+
+```powershell
+dotnet run --project Examples\MicrophoneCS\MicrophoneCS.csproj -c Debug -p:Platform=x64 -- -m models\ggml-medium.bin -l zh -c 0
+```
+
+说明：
+
+- `-c 0`：使用编号为 `0` 的录音设备
+- 可先通过 `-ld` 查看设备列表
+
+### 4. 运行前的注意事项
+
+- 请确保输出目录中存在 `Whisper.dll`
+- 请确保模型文件路径正确
+- .NET 示例默认目标为 `net6.0-windows`，需要本机安装对应 .NET 运行时
+
 ## 界面与功能概览
 
 ### 加载模型
