@@ -113,9 +113,11 @@ dotnet run --project Examples\MicrophoneCS\MicrophoneCS.csproj -c Debug -p:Platf
 
 - 基于 Whisper 模型的本地语音识别
 - 支持批量文件转录与实时麦克风转录
-- Windows 原生实现，无需 Python 或额外运行时
-- 支持 GPU 加速（Direct3D 11）
-- 中文界面，适合日常使用
+- Windows 原生实现：基于 MSVC v145 开发，无需 Python 或额外运行时
+- 支持 GPU 加速（Direct3D 11）：适配 RTX 3070 Ti 等主流显卡
+- 新增 Whisper V3 Turbo 模型支持：兼顾识别速度与准确率
+- 深度支持中文与粤语：优化多语言代码映射，提供原生粤语选项
+- 中文界面与调试优化：支持控制台日志路径自定义，适合日常及工程使用
 
 ---
 
