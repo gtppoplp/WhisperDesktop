@@ -11,6 +11,7 @@ namespace
 	using Whisper::eLogLevel;
 
 	constexpr uint16_t defaultAttributes = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
+	constexpr wchar_t consoleOutputPath[] = L"CONOUT$";
 
 	inline uint16_t textAttributes( eLogLevel lvl )
 	{
@@ -156,9 +157,27 @@ BOOL __stdcall DebugConsole::consoleHandlerRoutine( DWORD dwCtrlType )
 
 HRESULT DebugConsole::show()
 {
+ LOCK();
+
 	HWND hWnd = GetConsoleWindow();
 	if( nullptr != hWnd )
 	{
+     if( !output )
+		{
+			output.Attach( CreateFile( consoleOutputPath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr ) );
+			if( !output )
+				return getLastHr();
+
+			for( const auto& e : buffer )
+				CHECK( e.print( output, tempString ) );
+
+			const CStringA msg = "Press Control+C or Control+Break to close this window\r\n";
+			if( !SetConsoleTextAttribute( output, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY ) )
+				return getLastHr();
+			if( !WriteConsoleA( output, cstr( msg ), msg.GetLength(), nullptr, nullptr ) )
+				return getLastHr();
+		}
+
 		ShowWindow( hWnd, SW_RESTORE );
 		SetForegroundWindow( hWnd );
 		return S_FALSE;
@@ -167,8 +186,8 @@ HRESULT DebugConsole::show()
 	if( !AllocConsole() )
 		return getLastHr();
 
-	output.Close();
-	output.Attach( GetStdHandle( STD_OUTPUT_HANDLE ) );
+ output.Close();
+	output.Attach( CreateFile( consoleOutputPath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr ) );
 	if( !output )
 		return getLastHr();
 
@@ -215,9 +234,11 @@ HRESULT DebugConsole::show()
 
 HRESULT DebugConsole::hide()
 {
-	LOCK();
-	if( !output )
-		return S_FALSE;
+ {
+		LOCK();
+		if( !output )
+			return S_FALSE;
+	}
 	windowClosed();
 	return S_OK;
 }

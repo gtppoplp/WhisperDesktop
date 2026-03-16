@@ -9,6 +9,7 @@ namespace Whisper
 	constexpr uint32_t FFT_SIZE = 400;
 	// WHISPER_HOP_LENGTH, 10 milliseconds
 	constexpr uint32_t FFT_STEP = 160;
-	// WHISPER_N_MEL
-	constexpr uint32_t N_MEL = 80;
+    // WHISPER_N_MEL: model-dependent, 80 for legacy/v2 and 128 for v3.
+	// Keep this value as an upper bound for fixed-size stack buffers.
+	constexpr uint32_t N_MEL = 128;
 }

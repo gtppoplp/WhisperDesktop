@@ -6,203 +6,205 @@ namespace Whisper
 	/// It seems OpenAI tried to implement ISO 639-1, but they used the version of the standard from 1988.</remarks>
 	public enum eLanguage: uint
 	{
-		/// <summary>Afrikaans</summary>
-		Afrikaans = 0x6661,  // "af"
-		/// <summary>Albanian</summary>
+		/// <summary>阿尔巴尼亚语</summary>
 		Albanian = 0x7173,  // "sq"
-		/// <summary>Amharic</summary>
-		Amharic = 0x6D61,  // "am"
-		/// <summary>Arabic</summary>
+		/// <summary>阿拉伯语</summary>
 		Arabic = 0x7261,  // "ar"
-		/// <summary>Armenian</summary>
-		Armenian = 0x7968,  // "hy"
-		/// <summary>Assamese</summary>
+		/// <summary>阿姆哈拉语</summary>
+		Amharic = 0x6D61,  // "am"
+		/// <summary>阿萨姆语</summary>
 		Assamese = 0x7361,  // "as"
-		/// <summary>Azerbaijani</summary>
+		/// <summary>阿塞拜疆语</summary>
 		Azerbaijani = 0x7A61,  // "az"
-		/// <summary>Bashkir</summary>
-		Bashkir = 0x6162,  // "ba"
-		/// <summary>Basque</summary>
-		Basque = 0x7565,  // "eu"
-		/// <summary>Belarusian</summary>
-		Belarusian = 0x6562,  // "be"
-		/// <summary>Bengali</summary>
-		Bengali = 0x6E62,  // "bn"
-		/// <summary>Bosnian</summary>
-		Bosnian = 0x7362,  // "bs"
-		/// <summary>Breton</summary>
-		Breton = 0x7262,  // "br"
-		/// <summary>Bulgarian</summary>
-		Bulgarian = 0x6762,  // "bg"
-		/// <summary>Catalan</summary>
-		Catalan = 0x6163,  // "ca"
-		/// <summary>Chinese</summary>
-		Chinese = 0x687A,  // "zh"
-		/// <summary>Croatian</summary>
-		Croatian = 0x7268,  // "hr"
-		/// <summary>Czech</summary>
-		Czech = 0x7363,  // "cs"
-		/// <summary>Danish</summary>
-		Danish = 0x6164,  // "da"
-		/// <summary>Dutch</summary>
-		Dutch = 0x6C6E,  // "nl"
-		/// <summary>English</summary>
-		English = 0x6E65,  // "en"
-		/// <summary>Estonian</summary>
+		/// <summary>爱沙尼亚语</summary>
 		Estonian = 0x7465,  // "et"
-		/// <summary>Faroese</summary>
-		Faroese = 0x6F66,  // "fo"
-		/// <summary>Finnish</summary>
-		Finnish = 0x6966,  // "fi"
-		/// <summary>French</summary>
-		French = 0x7266,  // "fr"
-		/// <summary>Galician</summary>
-		Galician = 0x6C67,  // "gl"
-		/// <summary>Georgian</summary>
-		Georgian = 0x616B,  // "ka"
-		/// <summary>German</summary>
-		German = 0x6564,  // "de"
-		/// <summary>Greek</summary>
-		Greek = 0x6C65,  // "el"
-		/// <summary>Gujarati</summary>
-		Gujarati = 0x7567,  // "gu"
-		/// <summary>Haitian Creole</summary>
-		HaitianCreole = 0x7468,  // "ht"
-		/// <summary>Hausa</summary>
-		Hausa = 0x6168,  // "ha"
-		/// <summary>Hawaiian</summary>
-		Hawaiian = 0x776168,  // "haw"
-		/// <summary>Hebrew</summary>
-		Hebrew = 0x7769,  // "iw"
-		/// <summary>Hindi</summary>
-		Hindi = 0x6968,  // "hi"
-		/// <summary>Hungarian</summary>
-		Hungarian = 0x7568,  // "hu"
-		/// <summary>Icelandic</summary>
-		Icelandic = 0x7369,  // "is"
-		/// <summary>Indonesian</summary>
-		Indonesian = 0x6469,  // "id"
-		/// <summary>Italian</summary>
-		Italian = 0x7469,  // "it"
-		/// <summary>Japanese</summary>
-		Japanese = 0x616A,  // "ja"
-		/// <summary>Javanese</summary>
-		Javanese = 0x776A,  // "jw"
-		/// <summary>Kannada</summary>
-		Kannada = 0x6E6B,  // "kn"
-		/// <summary>Kazakh</summary>
-		Kazakh = 0x6B6B,  // "kk"
-		/// <summary>Khmer</summary>
-		Khmer = 0x6D6B,  // "km"
-		/// <summary>Korean</summary>
-		Korean = 0x6F6B,  // "ko"
-		/// <summary>Lao</summary>
-		Lao = 0x6F6C,  // "lo"
-		/// <summary>Latin</summary>
-		Latin = 0x616C,  // "la"
-		/// <summary>Latvian</summary>
-		Latvian = 0x766C,  // "lv"
-		/// <summary>Lingala</summary>
-		Lingala = 0x6E6C,  // "ln"
-		/// <summary>Lithuanian</summary>
-		Lithuanian = 0x746C,  // "lt"
-		/// <summary>Luxembourgish</summary>
-		Luxembourgish = 0x626C,  // "lb"
-		/// <summary>Macedonian</summary>
-		Macedonian = 0x6B6D,  // "mk"
-		/// <summary>Malagasy</summary>
-		Malagasy = 0x676D,  // "mg"
-		/// <summary>Malay</summary>
-		Malay = 0x736D,  // "ms"
-		/// <summary>Malayalam</summary>
-		Malayalam = 0x6C6D,  // "ml"
-		/// <summary>Maltese</summary>
-		Maltese = 0x746D,  // "mt"
-		/// <summary>Maori</summary>
-		Maori = 0x696D,  // "mi"
-		/// <summary>Marathi</summary>
-		Marathi = 0x726D,  // "mr"
-		/// <summary>Mongolian</summary>
-		Mongolian = 0x6E6D,  // "mn"
-		/// <summary>Myanmar</summary>
-		Myanmar = 0x796D,  // "my"
-		/// <summary>Nepali</summary>
-		Nepali = 0x656E,  // "ne"
-		/// <summary>Norwegian</summary>
-		Norwegian = 0x6F6E,  // "no"
-		/// <summary>Nynorsk</summary>
-		Nynorsk = 0x6E6E,  // "nn"
-		/// <summary>Occitan</summary>
+		/// <summary>奥西坦语</summary>
 		Occitan = 0x636F,  // "oc"
-		/// <summary>Pashto</summary>
-		Pashto = 0x7370,  // "ps"
-		/// <summary>Persian</summary>
-		Persian = 0x6166,  // "fa"
-		/// <summary>Polish</summary>
+		/// <summary>巴什基尔语</summary>
+		Bashkir = 0x6162,  // "ba"
+		/// <summary>巴斯克语</summary>
+		Basque = 0x7565,  // "eu"
+		/// <summary>白俄罗斯语</summary>
+		Belarusian = 0x6562,  // "be"
+		/// <summary>保加利亚语</summary>
+		Bulgarian = 0x6762,  // "bg"
+		/// <summary>冰岛语</summary>
+		Icelandic = 0x7369,  // "is"
+		/// <summary>波兰语</summary>
 		Polish = 0x6C70,  // "pl"
-		/// <summary>Portuguese</summary>
-		Portuguese = 0x7470,  // "pt"
-		/// <summary>Punjabi</summary>
-		Punjabi = 0x6170,  // "pa"
-		/// <summary>Romanian</summary>
-		Romanian = 0x6F72,  // "ro"
-		/// <summary>Russian</summary>
-		Russian = 0x7572,  // "ru"
-		/// <summary>Sanskrit</summary>
-		Sanskrit = 0x6173,  // "sa"
-		/// <summary>Serbian</summary>
-		Serbian = 0x7273,  // "sr"
-		/// <summary>Shona</summary>
-		Shona = 0x6E73,  // "sn"
-		/// <summary>Sindhi</summary>
-		Sindhi = 0x6473,  // "sd"
-		/// <summary>Sinhala</summary>
-		Sinhala = 0x6973,  // "si"
-		/// <summary>Slovak</summary>
-		Slovak = 0x6B73,  // "sk"
-		/// <summary>Slovenian</summary>
-		Slovenian = 0x6C73,  // "sl"
-		/// <summary>Somali</summary>
-		Somali = 0x6F73,  // "so"
-		/// <summary>Spanish</summary>
-		Spanish = 0x7365,  // "es"
-		/// <summary>Sundanese</summary>
-		Sundanese = 0x7573,  // "su"
-		/// <summary>Swahili</summary>
-		Swahili = 0x7773,  // "sw"
-		/// <summary>Swedish</summary>
-		Swedish = 0x7673,  // "sv"
-		/// <summary>Tagalog</summary>
-		Tagalog = 0x6C74,  // "tl"
-		/// <summary>Tajik</summary>
-		Tajik = 0x6774,  // "tg"
-		/// <summary>Tamil</summary>
-		Tamil = 0x6174,  // "ta"
-		/// <summary>Tatar</summary>
-		Tatar = 0x7474,  // "tt"
-		/// <summary>Telugu</summary>
-		Telugu = 0x6574,  // "te"
-		/// <summary>Thai</summary>
-		Thai = 0x6874,  // "th"
-		/// <summary>Tibetan</summary>
+		/// <summary>波斯尼亚语</summary>
+		Bosnian = 0x7362,  // "bs"
+		/// <summary>波斯语</summary>
+		Persian = 0x6166,  // "fa"
+		/// <summary>布列塔尼语</summary>
+		Breton = 0x7262,  // "br"
+		/// <summary>藏语</summary>
 		Tibetan = 0x6F62,  // "bo"
-		/// <summary>Turkish</summary>
+		/// <summary>鞑靼语</summary>
+		Tatar = 0x7474,  // "tt"
+		/// <summary>丹麦语</summary>
+		Danish = 0x6164,  // "da"
+		/// <summary>德语</summary>
+		German = 0x6564,  // "de"
+		/// <summary>俄语</summary>
+		Russian = 0x7572,  // "ru"
+		/// <summary>法罗语</summary>
+		Faroese = 0x6F66,  // "fo"
+		/// <summary>法语</summary>
+		French = 0x7266,  // "fr"
+		/// <summary>梵语</summary>
+		Sanskrit = 0x6173,  // "sa"
+		/// <summary>芬兰语</summary>
+		Finnish = 0x6966,  // "fi"
+		/// <summary>高棉语</summary>
+		Khmer = 0x6D6B,  // "km"
+		/// <summary>格鲁吉亚语</summary>
+		Georgian = 0x616B,  // "ka"
+		/// <summary>古吉拉特语</summary>
+		Gujarati = 0x7567,  // "gu"
+		/// <summary>哈萨克语</summary>
+		Kazakh = 0x6B6B,  // "kk"
+		/// <summary>海地克里奥尔语</summary>
+		HaitianCreole = 0x7468,  // "ht"
+		/// <summary>韩语</summary>
+		Korean = 0x6F6B,  // "ko"
+		/// <summary>豪萨语</summary>
+		Hausa = 0x6168,  // "ha"
+		/// <summary>荷兰语</summary>
+		Dutch = 0x6C6E,  // "nl"
+		/// <summary>加利西亚语</summary>
+		Galician = 0x6C67,  // "gl"
+		/// <summary>加泰罗尼亚语</summary>
+		Catalan = 0x6163,  // "ca"
+		/// <summary>捷克语</summary>
+		Czech = 0x7363,  // "cs"
+		/// <summary>卡纳达语</summary>
+		Kannada = 0x6E6B,  // "kn"
+		/// <summary>克罗地亚语</summary>
+		Croatian = 0x7268,  // "hr"
+		/// <summary>拉丁语</summary>
+		Latin = 0x616C,  // "la"
+		/// <summary>拉脱维亚语</summary>
+		Latvian = 0x766C,  // "lv"
+		/// <summary>老挝语</summary>
+		Lao = 0x6F6C,  // "lo"
+		/// <summary>立陶宛语</summary>
+		Lithuanian = 0x746C,  // "lt"
+		/// <summary>林加拉语</summary>
+		Lingala = 0x6E6C,  // "ln"
+		/// <summary>卢森堡语</summary>
+		Luxembourgish = 0x626C,  // "lb"
+		/// <summary>罗马尼亚语</summary>
+		Romanian = 0x6F72,  // "ro"
+		/// <summary>马尔加什语</summary>
+		Malagasy = 0x676D,  // "mg"
+		/// <summary>马耳他语</summary>
+		Maltese = 0x746D,  // "mt"
+		/// <summary>马拉地语</summary>
+		Marathi = 0x726D,  // "mr"
+		/// <summary>马拉雅拉姆语</summary>
+		Malayalam = 0x6C6D,  // "ml"
+		/// <summary>马来语</summary>
+		Malay = 0x736D,  // "ms"
+		/// <summary>马其顿语</summary>
+		Macedonian = 0x6B6D,  // "mk"
+		/// <summary>毛利语</summary>
+		Maori = 0x696D,  // "mi"
+		/// <summary>蒙古语</summary>
+		Mongolian = 0x6E6D,  // "mn"
+		/// <summary>孟加拉语</summary>
+		Bengali = 0x6E62,  // "bn"
+		/// <summary>缅甸语</summary>
+		Myanmar = 0x796D,  // "my"
+		/// <summary>南非荷兰语</summary>
+		Afrikaans = 0x6661,  // "af"
+		/// <summary>尼泊尔语</summary>
+		Nepali = 0x656E,  // "ne"
+		/// <summary>挪威语</summary>
+		Norwegian = 0x6F6E,  // "no"
+		/// <summary>旁遮普语</summary>
+		Punjabi = 0x6170,  // "pa"
+		/// <summary>葡萄牙语</summary>
+		Portuguese = 0x7470,  // "pt"
+		/// <summary>普什图语</summary>
+		Pashto = 0x7370,  // "ps"
+		/// <summary>日语</summary>
+		Japanese = 0x616A,  // "ja"
+		/// <summary>瑞典语</summary>
+		Swedish = 0x7673,  // "sv"
+		/// <summary>塞尔维亚语</summary>
+		Serbian = 0x7273,  // "sr"
+		/// <summary>僧伽罗语</summary>
+		Sinhala = 0x6973,  // "si"
+		/// <summary>斯洛伐克语</summary>
+		Slovak = 0x6B73,  // "sk"
+		/// <summary>斯洛文尼亚语</summary>
+		Slovenian = 0x6C73,  // "sl"
+		/// <summary>斯瓦希里语</summary>
+		Swahili = 0x7773,  // "sw"
+		/// <summary>索马里语</summary>
+		Somali = 0x6F73,  // "so"
+		/// <summary>他加禄语</summary>
+		Tagalog = 0x6C74,  // "tl"
+		/// <summary>塔吉克语</summary>
+		Tajik = 0x6774,  // "tg"
+		/// <summary>泰卢固语</summary>
+		Telugu = 0x6574,  // "te"
+		/// <summary>泰米尔语</summary>
+		Tamil = 0x6174,  // "ta"
+		/// <summary>泰语</summary>
+		Thai = 0x6874,  // "th"
+		/// <summary>土耳其语</summary>
 		Turkish = 0x7274,  // "tr"
-		/// <summary>Turkmen</summary>
+		/// <summary>土库曼语</summary>
 		Turkmen = 0x6B74,  // "tk"
-		/// <summary>Ukrainian</summary>
-		Ukrainian = 0x6B75,  // "uk"
-		/// <summary>Urdu</summary>
-		Urdu = 0x7275,  // "ur"
-		/// <summary>Uzbek</summary>
-		Uzbek = 0x7A75,  // "uz"
-		/// <summary>Vietnamese</summary>
-		Vietnamese = 0x6976,  // "vi"
-		/// <summary>Welsh</summary>
+		/// <summary>威尔士语</summary>
 		Welsh = 0x7963,  // "cy"
-		/// <summary>Yiddish</summary>
+		/// <summary>乌尔都语</summary>
+		Urdu = 0x7275,  // "ur"
+		/// <summary>乌克兰语</summary>
+		Ukrainian = 0x6B75,  // "uk"
+		/// <summary>乌兹别克语</summary>
+		Uzbek = 0x7A75,  // "uz"
+		/// <summary>西班牙语</summary>
+		Spanish = 0x7365,  // "es"
+		/// <summary>希伯来语</summary>
+		Hebrew = 0x7769,  // "iw"
+		/// <summary>希腊语</summary>
+		Greek = 0x6C65,  // "el"
+		/// <summary>夏威夷语</summary>
+		Hawaiian = 0x776168,  // "haw"
+		/// <summary>新挪威语</summary>
+		Nynorsk = 0x6E6E,  // "nn"
+		/// <summary>信德语</summary>
+		Sindhi = 0x6473,  // "sd"
+		/// <summary>匈牙利语</summary>
+		Hungarian = 0x7568,  // "hu"
+		/// <summary>修纳语</summary>
+		Shona = 0x6E73,  // "sn"
+		/// <summary>巽他语</summary>
+		Sundanese = 0x7573,  // "su"
+		/// <summary>亚美尼亚语</summary>
+		Armenian = 0x7968,  // "hy"
+		/// <summary>意大利语</summary>
+		Italian = 0x7469,  // "it"
+		/// <summary>意第绪语</summary>
 		Yiddish = 0x6979,  // "yi"
-		/// <summary>Yoruba</summary>
+		/// <summary>印地语</summary>
+		Hindi = 0x6968,  // "hi"
+		/// <summary>印尼语</summary>
+		Indonesian = 0x6469,  // "id"
+		/// <summary>英语</summary>
+		English = 0x6E65,  // "en"
+		/// <summary>约鲁巴语</summary>
 		Yoruba = 0x6F79,  // "yo"
+		/// <summary>粤语</summary>
+		Cantonese = 0x657579,  // "yue"
+		/// <summary>越南语</summary>
+		Vietnamese = 0x6976,  // "vi"
+		/// <summary>爪哇语</summary>
+		Javanese = 0x776A,  // "jw"
+		/// <summary>中文</summary>
+		Chinese = 0x687A,  // "zh"
 	}
 }

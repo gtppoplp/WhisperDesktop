@@ -106,15 +106,26 @@ HRESULT Vocabulary::load( ComLight::iReadStream* stm, int lengthInHeader )
 	}
 
 	n_vocab = lengthInHeader;
+	token_eot = 50256;
+	token_sot = 50257;
+	token_prev = 50360;
+	token_solm = 50361;
+	token_not = 50362;
+	token_beg = 50363;
+	token_translate = 50358;
+	token_transcribe = 50359;
 
 	if( is_multilingual() )
 	{
+        const int dt = num_languages() - 98;
 		token_eot++;
 		token_sot++;
-		token_prev++;
-		token_solm++;
-		token_not++;
-		token_beg++;
+       token_translate++;
+		token_transcribe++;
+		token_prev += dt;
+		token_solm += dt;
+		token_not += dt;
+		token_beg += dt;
 	};
 
 	if( countWords < lengthInHeader )

@@ -19,10 +19,10 @@ HRESULT TranscribeDlg::show()
 
 constexpr int progressMaxInteger = 1024 * 8;
 
-static const LPCTSTR regValInput = L"sourceMedia";
-static const LPCTSTR regValOutFormat = L"resultFormat";
-static const LPCTSTR regValOutPath = L"resultPath";
-static const LPCTSTR regValUseInputFolder = L"useInputFolder";
+static const LPCTSTR regValInput = L"\u6E90\u5A92\u4F53";
+static const LPCTSTR regValOutFormat = L"\u7ED3\u679C\u683C\u5F0F";
+static const LPCTSTR regValOutPath = L"\u7ED3\u679C\u8DEF\u5F84";
+static const LPCTSTR regValUseInputFolder = L"\u4F7F\u7528\u8F93\u5165\u6587\u4EF6\u5939";
 static const std::array<LPCTSTR, 4> outputExtensions =
 {
 	L".txt", L".txt", L".srt", L".vtt"
@@ -56,7 +56,7 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 	HRESULT hr = work.create( this );
 	if( FAILED( hr ) )
 	{
-		reportError( m_hWnd, L"CreateThreadpoolWork failed", nullptr, hr );
+       reportError( m_hWnd, L"\u521B\u5EFA\u7EBF\u7A0B\u6C60\u5DE5\u4F5C\u5931\u8D25", nullptr, hr );
 		EndDialog( IDCANCEL );
 	}
 
@@ -82,10 +82,10 @@ void TranscribeDlg::printModelDescription()
 {
 	CString text;
 	if( S_OK == appState.model->isMultilingual() )
-		text = L"Multilingual";
+     text = L"\u591A\u79CD\u8BED\u8A00";
 	else
-		text = L"Single-language";
-	text += L" model \"";
+      text = L"\u5355\u8BED\u8A00";
+	text += L" \u6A21\u578B \"";
 	LPCTSTR path = appState.source.path;
 	path = ::PathFindFileName( path );
 	text += path;
@@ -103,9 +103,9 @@ void TranscribeDlg::printModelDescription()
 		double gb = (double)cb * mul;
 		text.AppendFormat( L"%.2f GB", gb );
 	}
-	text += L" on disk, ";
+ text += L" \u5728\u78C1\u76D8\u4E0A, ";
 	text += implString( appState.source.impl );
-	text += L" implementation";
+ text += L" \u6267\u884C";
 
 	modelDesc.SetWindowText( text );
 }
@@ -113,11 +113,11 @@ void TranscribeDlg::printModelDescription()
 // Populate the "Output Format" combobox
 void TranscribeDlg::populateOutputFormats()
 {
-	transcribeOutFormat.AddString( L"None" );
-	transcribeOutFormat.AddString( L"Text file" );
-	transcribeOutFormat.AddString( L"Text with timestamps" );
-	transcribeOutFormat.AddString( L"SubRip subtitles" );
-	transcribeOutFormat.AddString( L"WebVTT subtitles" );
+    transcribeOutFormat.AddString( L"\u4E0D\u8F93\u51FA" );
+	transcribeOutFormat.AddString( L"\u6587\u672C\u6587\u4EF6" );
+	transcribeOutFormat.AddString( L"\u5E26\u65F6\u95F4\u6233\u7684\u6587\u672C" );
+	transcribeOutFormat.AddString( L"SubRip \u5B57\u5E55" );
+	transcribeOutFormat.AddString( L"WebVTT \u5B57\u5E55" );
 }
 
 // CBN_SELCHANGE notification for IDC_OUTPUT_FORMAT combobox
@@ -199,15 +199,15 @@ CString TranscribeDlg::formatStatus( eBatchState state, HRESULT hr )
 	switch( state )
 	{
 	case eBatchState::Pending:
-		return L"Pending";
+      return L"\u5F85\u529E\u7684";
 	case eBatchState::Running:
-		return L"Running";
+      return L"\u6267\u884C\u4E2D";
 	case eBatchState::Completed:
-		return L"Done";
+       return L"\u5B8C\u6210";
 	case eBatchState::Failed:
 	{
 		CString txt;
-		txt.Format( L"Failed (0x%08X)", hr );
+       txt.Format( L"\u5931\u8D25 (0x%08X)", hr );
 		return txt;
 	}
 	default:
@@ -249,13 +249,13 @@ bool TranscribeDlg::ensureOutputFolder( CString& folder )
 	folder.Trim();
 	if( folder.IsEmpty() )
 	{
-		transcribeError( L"Please choose an output folder." );
+        transcribeError( L"\u8BF7\u9009\u62E9\u8F93\u51FA\u6587\u4EF6\u5939." );
 		return false;
 	}
 	DWORD attrs = GetFileAttributes( folder );
 	if( attrs == INVALID_FILE_ATTRIBUTES || ( attrs & FILE_ATTRIBUTE_DIRECTORY ) == 0 )
 	{
-		CString msg = L"The output folder does not exist:\n";
+       CString msg = L"\u8F93\u51FA\u6587\u4EF6\u5939\u4E0D\u5B58\u5728:\n";
 		msg += folder;
 		transcribeError( msg );
 		return false;
@@ -302,14 +302,14 @@ bool TranscribeDlg::prepareBatchItems( const CString& explicitFolder )
 {
 	if( batchItems.empty() )
 	{
-		transcribeError( L"Please add at least one audio file." );
+       transcribeError( L"\u8BF7\u81F3\u5C11\u6DFB\u52A0\u4E00\u4E2A\u97F3\u9891\u6587\u4EF6\u3002" );
 		return false;
 	}
 	for( const BatchItem& item : batchItems )
 	{
 		if( PathFileExists( item.inputPath ) )
 			continue;
-		CString msg = L"Input audio file does not exist:\n";
+      CString msg = L"\u8F93\u5165\u97F3\u9891\u6587\u4EF6\u4E0D\u5B58\u5728:\n";
 		msg += item.inputPath;
 		transcribeError( msg, HRESULT_FROM_WIN32( ERROR_FILE_NOT_FOUND ) );
 		return false;
@@ -332,7 +332,7 @@ bool TranscribeDlg::prepareBatchItems( const CString& explicitFolder )
 
 	if( needOverwritePrompt )
 	{
-		const int resp = MessageBox( L"Some output files already exist.\nOverwrite all of them?", L"Confirm Overwrite", MB_ICONQUESTION | MB_YESNO );
+      const int resp = MessageBox( L"\u90E8\u5206\u8F93\u51FA\u6587\u4EF6\u5DF2\u5B58\u5728\u3002\n\u8981\u5168\u90E8\u8986\u76D6\u5417?", L"\u786E\u8BA4\u8986\u76D6", MB_ICONQUESTION | MB_YESNO );
 		if( resp != IDYES )
 			return false;
 	}
@@ -361,7 +361,7 @@ bool TranscribeDlg::startNextItem()
 		if( FAILED( hr ) )
 		{
 			finalizeCurrentItem( hr );
-			transcribeError( L"Unable to queue transcription", hr );
+          transcribeError( L"\u65E0\u6CD5\u5C06\u8F6C\u5F55\u4EFB\u52A1\u52A0\u5165\u961F\u5217", hr );
 			return false;
 		}
 		return true;
@@ -380,7 +380,7 @@ void TranscribeDlg::finalizeCurrentItem( HRESULT hr )
 	refreshQueueDisplay();
 	if( FAILED( hr ) )
 	{
-		CString msg = L"Transcribe failed";
+     CString msg = L"\u8F6C\u5F55\u5931\u8D25";
 		if( transcribeArgs.errorMessage.GetLength() > 0 )
 		{
 			msg += L"\n";
@@ -394,7 +394,7 @@ void TranscribeDlg::finishBatch( bool canceled )
 {
 	transcribeArgs.visualState = eVisualState::Idle;
 	setPending( false );
-	transcribeButton.SetWindowText( L"Transcribe" );
+    transcribeButton.SetWindowText( L"\u8F6C\u5F55" );
 	transcribeButton.EnableWindow( TRUE );
 	progressBar.SetPos( 0 );
 	updateQueueButtons();
@@ -421,13 +421,13 @@ void TranscribeDlg::finishBatch( bool canceled )
 	}
 	CString summary;
 	if( canceled )
-		summary = L"Batch stopped before processing all files.";
+     summary = L"\u6279\u91CF\u4EFB\u52A1\u5728\u5904\u7406\u5B8C\u6240\u6709\u6587\u4EF6\u524D\u5DF2\u505C\u6B62\u3002";
 	else
-		summary = L"Completed batch transcription.";
-	summary.AppendFormat( L"\nDone: %zu\nFailed: %zu", completed, failed );
+      summary = L"\u6279\u91CF\u8F6C\u5F55\u5DF2\u5B8C\u6210\u3002";
+	summary.AppendFormat( L"\n\u5B8C\u6210: %zu\n\u5931\u8D25: %zu", completed, failed );
 	if( pending > 0 )
-		summary.AppendFormat( L"\nPending: %zu", pending );
-	MessageBox( summary, L"Transcribe", MB_OK | MB_ICONINFORMATION );
+        summary.AppendFormat( L"\n\u5F85\u5904\u7406: %zu", pending );
+	MessageBox( summary, L"\u8F6C\u5F55", MB_OK | MB_ICONINFORMATION );
 }
 
 
@@ -454,7 +454,7 @@ void TranscribeDlg::setPending( bool nowPending )
 
 void TranscribeDlg::transcribeError( LPCTSTR text, HRESULT hr )
 {
-	reportError( m_hWnd, text, L"Unable to transcribe audio", hr );
+    reportError( m_hWnd, text, L"\u65E0\u6CD5\u8F6C\u5F55\u97F3\u9891", hr );
 }
 
 void TranscribeDlg::onTranscribe()
@@ -499,7 +499,7 @@ void TranscribeDlg::onTranscribe()
 
 	setPending( true );
 	transcribeArgs.visualState = eVisualState::Running;
-	transcribeButton.SetWindowText( L"Stop" );
+  transcribeButton.SetWindowText( L"\u505C\u6B62" );
 	updateQueueButtons();
 	if( !startNextItem() )
 		finishBatch( true );
@@ -518,7 +518,7 @@ static void printTime( CString& rdi, int64_t ticks )
 
 	if( fields.days != 0 )
 	{
-		rdi.AppendFormat( L"%i days, %i hours", fields.days, (int)fields.hours );
+       rdi.AppendFormat( L"%i \u5929, %i \u5C0F\u65F6", fields.days, (int)fields.hours );
 		return;
 	}
 	if( ( fields.hours | fields.minutes ) != 0 )
@@ -526,7 +526,7 @@ static void printTime( CString& rdi, int64_t ticks )
 		rdi.AppendFormat( L"%02d:%02d:%02d", (int)fields.hours, (int)fields.minutes, (int)fields.seconds );
 		return;
 	}
-	rdi.AppendFormat( L"%.3f seconds", (double)ticks / 1E7 );
+   rdi.AppendFormat( L"%.3f \u79D2", (double)ticks / 1E7 );
 }
 
 LRESULT TranscribeDlg::onCallbackStatus( UINT, WPARAM wParam, LPARAM, BOOL& )
@@ -777,7 +777,7 @@ void TranscribeDlg::onWmClose()
 	}
 
 	constexpr UINT flags = MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2;
-	const int res = this->MessageBox( L"Transcribe is in progress.\nDo you want to quit anyway?", L"Confirm exit", flags );
+    const int res = this->MessageBox( L"\u6B63\u5728\u8F6C\u5F55\u4E2D\u3002\n\u4ECD\u7136\u8981\u9000\u51FA\u5417?", L"\u786E\u8BA4\u9000\u51FA", flags );
 	if( res != IDYES )
 		return;
 

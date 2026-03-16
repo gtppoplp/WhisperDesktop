@@ -19,6 +19,7 @@ namespace Whisper
 		std::deque<PcmMonoChunk> queuePcmMono;
 		using MelChunk = std::array<float, N_MEL>;
 		std::deque<MelChunk> queueMel;
+       uint32_t melCount = 0;
 		size_t streamStartOffset = 0;
 		std::vector<float> tempPcm;
 		std::vector<float> outputMel;

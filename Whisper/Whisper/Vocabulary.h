@@ -32,12 +32,17 @@ namespace Whisper
 		id token_beg = 50363;
 
 		// available tasks
-		static const id token_translate = 50358;
-		static const id token_transcribe = 50359;
+        id token_translate = 50358;
+		id token_transcribe = 50359;
 
 		bool is_multilingual() const
 		{
-			return n_vocab == 51865;
+            return n_vocab >= 51865;
+		}
+
+		int num_languages() const
+		{
+			return n_vocab - 51765 - ( is_multilingual() ? 1 : 0 );
 		}
 
 		const char* string( int id ) const
