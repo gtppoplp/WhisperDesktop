@@ -12,7 +12,7 @@ namespace Whisper
 	class Spectrogram: public iSpectrogram
 	{
 		uint32_t length = 0;
-		static constexpr uint32_t mel = N_MEL;
+      uint32_t mel = 0;
 		std::vector<float> data;
 		std::vector<StereoSample> stereo;
 

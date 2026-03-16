@@ -8,6 +8,7 @@ using PcmQueueLock = CComCritSecLock<CComAutoCriticalSection>;
 MelStreamer::MelStreamer( const Filters& filters, ProfileCollection& prof, const iAudioReader* iar ) :
 	reader( iar ),
 	melContext( filters ),
+    melCount( filters.n_mel ),
 	profiler( prof )
 { }
 
@@ -87,88 +88,30 @@ size_t MelStreamer::serializePcm( size_t startChunkAbsolute )
 	return chunks;
 }
 
-namespace
-{
-	__forceinline __m128 transpose4x80( __m128 vmax, const float* c0, const float* c1, const float* c2, const float* c3, float* rdi, size_t stride )
-	{
-		const float* const c0End = c0 + 80;
-		for( ; c0 < c0End; c0 += 4, c1 += 4, c2 += 4, c3 += 4, rdi += stride * 4 )
-		{
-			__m128 r0 = _mm_loadu_ps( c0 );
-			__m128 r1 = _mm_loadu_ps( c1 );
-			__m128 r2 = _mm_loadu_ps( c2 );
-			__m128 r3 = _mm_loadu_ps( c3 );
-
-			__m128 ax01 = _mm_max_ps( r0, r1 );
-			__m128 ax02 = _mm_max_ps( r2, r3 );
-			__m128 ax = _mm_max_ps( ax01, ax02 );
-			vmax = _mm_max_ps( vmax, ax );
-
-			_MM_TRANSPOSE4_PS( r0, r1, r2, r3 );
-
-			_mm_storeu_ps( rdi, r0 );
-			_mm_storeu_ps( rdi + stride, r1 );
-			_mm_storeu_ps( rdi + stride * 2, r2 );
-			_mm_storeu_ps( rdi + stride * 3, r3 );
-		}
-		return vmax;
-	}
-
-	__forceinline __m128 transpose80( __m128 vmax, const float* c0, float* rdi, size_t stride )
-	{
-		const float* const c0End = c0 + 80;
-		for( ; c0 < c0End; c0 += 4, rdi += stride * 4 )
-		{
-			__m128 r0 = _mm_loadu_ps( c0 );
-			vmax = _mm_max_ps( vmax, r0 );
-
-			_mm_store_ss( rdi, r0 );
-			*(int*)( rdi + stride ) = _mm_extract_ps( r0, 1 );
-			*(int*)( rdi + stride * 2 ) = _mm_extract_ps( r0, 2 );
-			*(int*)( rdi + stride * 3 ) = _mm_extract_ps( r0, 3 );
-		}
-		return vmax;
-	}
-
-	__forceinline float horizontalMaximum( __m128 v )
-	{
-		v = _mm_max_ps( v, _mm_movehl_ps( v, v ) );
-		v = _mm_max_ss( v, _mm_movehdup_ps( v ) );
-		return _mm_cvtss_f32( v );
-	}
-}
-
 void MelStreamer::makeTransposedBuffer( size_t off, size_t len )
 {
 	// Resize the output
 	assert( len <= queueMel.size() );
-	outputMel.resize( len * N_MEL );	// N_MEL = 80
+   outputMel.resize( len * melCount );
 
-	// First pass, copy transposed MEL data, and compute the maximum
-	const size_t lengthAligned = ( len / 4 ) * 4;
-	__m128 vMax = _mm_set1_ps( 1e-20f );
-	float* rdi = outputMel.data();
-
-	size_t i;
-	for( i = 0; i < lengthAligned; i += 4, rdi += 4 )
+    // First pass, copy transposed MEL data, and compute the maximum
+	float mmax = 1e-20f;
+	for( size_t i = 0; i < len; i++ )
 	{
-		vMax = transpose4x80( vMax,
-			queueMel[ i ].data(),
-			queueMel[ i + 1 ].data(),
-			queueMel[ i + 2 ].data(),
-			queueMel[ i + 3 ].data(),
-			rdi, len );
+		const float* const src = queueMel[ i ].data();
+		for( size_t j = 0; j < melCount; j++ )
+		{
+			const float v = src[ j ];
+			outputMel[ j * len + i ] = v;
+			mmax = std::max( mmax, v );
+		}
 	}
-	for( ; i < len; i++, rdi++ )
-		vMax = transpose80( vMax, queueMel[ i ].data(), rdi, len );
 
 	// Second pass, clamping and normalization
-	float mmax;
 	const size_t bufferEnd = off + len;
 	if( lastBufferEnd != bufferEnd )
 	{
 		// Store maximum value in this class, along with the end sample index
-		mmax = horizontalMaximum( vMax );
 		lastBufferEnd = bufferEnd;
 		lastBufferMax = mmax;
 	}
@@ -179,20 +122,12 @@ void MelStreamer::makeTransposedBuffer( size_t off, size_t len )
 		mmax = lastBufferMax;
 	}
 
-	mmax -= 8.0f;
-	vMax = _mm_set1_ps( mmax );
-
-	rdi = outputMel.data();
-	float* const rdiEnd = rdi + outputMel.size();
-	const __m128 add = _mm_set1_ps( 4 );
-	const __m128 mul = _mm_set1_ps( 1.0f / 4.0f );
-	for( ; rdi < rdiEnd; rdi += 4 )
+   mmax -= 8.0f;
+	for( float& v : outputMel )
 	{
-		__m128 v = _mm_loadu_ps( rdi );
-		v = _mm_max_ps( v, vMax );
-		v = _mm_add_ps( v, add );
-		v = _mm_mul_ps( v, mul );
-		_mm_storeu_ps( rdi, v );
+		if( v < mmax )
+			v = mmax;
+		v = ( v + 4.0f ) * 0.25f;
 	}
 }
 
@@ -236,7 +171,7 @@ HRESULT MelStreamerSimple::makeBuffer( size_t off, size_t len, const float** buf
 		{
 			assert( readerEof );
 			auto& arr = queueMel.emplace_back();
-			memset( arr.data(), 0, N_MEL * 4 );
+         memset( arr.data(), 0, melCount * 4 );
 		}
 	}
 
@@ -479,7 +414,7 @@ HRESULT MelStreamerThread::makeBuffer( size_t off, size_t len, const float** buf
 			while( queueMel.size() < len )
 			{
 				auto& arr = queueMel.emplace_back();
-				memset( arr.data(), 0, N_MEL * 4 );
+             memset( arr.data(), 0, melCount * 4 );
 			}
 		}
 

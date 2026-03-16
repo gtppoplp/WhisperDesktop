@@ -366,8 +366,9 @@ void SpectrogramContext::fft( std::array<float, N_MEL>& rdi, const float* pcm, s
 
 	constexpr size_t n_fft = 1 + ( FFT_SIZE / 2 );
 
-	// mel spectrogram
-	for( size_t j = 0; j < N_MEL; j++ )
+  // mel spectrogram
+	const size_t n_mel = filters.n_mel;
+	for( size_t j = 0; j < n_mel; j++ )
 	{
 		double sum = 0.0;
 		for( size_t k = 0; k < n_fft; k++ )
