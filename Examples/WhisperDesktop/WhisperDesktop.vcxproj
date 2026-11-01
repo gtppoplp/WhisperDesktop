@@ -44,10 +44,10 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>$(ProjectDir);$(SolutionDir)Whisper\API\;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir);$(SolutionDir)Whisper\API\;$(SolutionDir)third_party\sherpa-onnx\include\;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>$(ProjectDir);$(SolutionDir)Whisper\API\;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir);$(SolutionDir)Whisper\API\;$(SolutionDir)third_party\sherpa-onnx\include\;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -58,6 +58,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
@@ -65,6 +66,13 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ManifestFile>WhisperDesktop.manifest</ManifestFile>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
+copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
+copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime_providers_shared.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
+if exist "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" "$(OutDir)" &gt;nul 2&gt;&amp;1
+if not exist "$(OutDir)models\sense-voice" mkdir "$(OutDir)models\sense-voice"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -77,6 +85,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions</EnableEnhancedInstructionSet>
@@ -89,6 +98,13 @@
       <ManifestFile>WhisperDesktop.manifest</ManifestFile>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
+copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
+copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime_providers_shared.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
+if exist "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" "$(OutDir)" &gt;nul 2&gt;&amp;1
+if not exist "$(OutDir)models\sense-voice" mkdir "$(OutDir)models\sense-voice"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="CircleIndicator.h" />
@@ -103,6 +119,10 @@
     <ClInclude Include="Utils\LanguageDropdown.h" />
     <ClInclude Include="LoadModelDlg.h" />
     <ClInclude Include="TranscribeDlg.h" />
+    <ClInclude Include="Asr\iAsrEngine.h" />
+    <ClInclude Include="Asr\WhisperEngine.h" />
+    <ClInclude Include="Asr\asrEngineRegistry.h" />
+    <ClInclude Include="Asr\SenseVoiceEngine.h" />
     <ClInclude Include="Utils\miscUtils.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="Resource.h" />
@@ -131,6 +151,9 @@
     <ClCompile Include="Utils\LanguageDropdown.cpp" />
     <ClCompile Include="LoadModelDlg.cpp" />
     <ClCompile Include="TranscribeDlg.cpp" />
+    <ClCompile Include="Asr\WhisperEngine.cpp" />
+    <ClCompile Include="Asr\asrEngineRegistry.cpp" />
+    <ClCompile Include="Asr\SenseVoiceEngine.cpp" />
     <ClCompile Include="Utils\miscUtils.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
