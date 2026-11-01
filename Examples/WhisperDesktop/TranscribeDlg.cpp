@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "TranscribeDlg.h"
+#include "Asr/WhisperEngine.h"
 #include "Utils/logger.h"
 
 HRESULT TranscribeDlg::show()
@@ -23,6 +24,8 @@ static const LPCTSTR regValInput = L"\u6E90\u5A92\u4F53";
 static const LPCTSTR regValOutFormat = L"\u7ED3\u679C\u683C\u5F0F";
 static const LPCTSTR regValOutPath = L"\u7ED3\u679C\u8DEF\u5F84";
 static const LPCTSTR regValUseInputFolder = L"\u4F7F\u7528\u8F93\u5165\u6587\u4EF6\u5939";
+static const LPCTSTR regValEngine = L"引擎";
+static const LPCTSTR regValConcurrency = L"并发数";
 static const std::array<LPCTSTR, 4> outputExtensions =
 {
 	L".txt", L".txt", L".srt", L".vtt"
@@ -37,6 +40,7 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 	cbConsole.initialize( m_hWnd, IDC_CONSOLE, appState );
 	cbTranslate.initialize( m_hWnd, IDC_TRANSLATE, appState );
 	populateOutputFormats();
+	populateEngines();
 
 	pendingState.initialize(
 		{
@@ -53,17 +57,20 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 			progressBar, GetDlgItem( IDC_PENDING_TEXT )
 		} );
 
-	HRESULT hr = work.create( this );
-	if( FAILED( hr ) )
-	{
-       reportError( m_hWnd, L"\u521B\u5EFA\u7EBF\u7A0B\u6C60\u5DE5\u4F5C\u5931\u8D25", nullptr, hr );
-		EndDialog( IDCANCEL );
-	}
-
 	progressBar.SetRange32( 0, progressMaxInteger );
 	progressBar.SetStep( 1 );
 
 	lastInputPath = appState.stringLoad( regValInput );
+	// 恢复上次的并发数，没有记录时留空表示「自动」
+	{
+		const uint32_t saved = appState.dwordLoad( regValConcurrency, 0 );
+		if( saved > 0 )
+		{
+			CString tmp;
+			tmp.Format( L"%u", saved );
+			concurrencyEdit.SetWindowText( tmp );
+		}
+	}
 	transcribeOutFormat.SetCurSel( (int)appState.dwordLoad( regValOutFormat, 0 ) );
 	transcribeOutputPath.SetWindowText( appState.stringLoad( regValOutPath ) );
 	if( appState.boolLoad( regValUseInputFolder ) )
@@ -112,12 +119,76 @@ void TranscribeDlg::printModelDescription()
 
 // Populate the "Output Format" combobox
 void TranscribeDlg::populateOutputFormats()
-{
-    transcribeOutFormat.AddString( L"\u4E0D\u8F93\u51FA" );
+{    transcribeOutFormat.AddString( L"\u4E0D\u8F93\u51FA" );
 	transcribeOutFormat.AddString( L"\u6587\u672C\u6587\u4EF6" );
 	transcribeOutFormat.AddString( L"\u5E26\u65F6\u95F4\u6233\u7684\u6587\u672C" );
 	transcribeOutFormat.AddString( L"SubRip \u5B57\u5E55" );
 	transcribeOutFormat.AddString( L"WebVTT \u5B57\u5E55" );
+}
+
+// 依据当前模型 / 已安装的引擎填充下拉框
+void TranscribeDlg::populateEngines()
+{
+	engineIds.clear();
+	engineSelector.ResetContent();
+
+	Asr::AppContext ctx;
+	ctx.model = appState.model;
+	ctx.mediaFoundation = appState.mediaFoundation;
+
+	const std::vector<Asr::sAsrEngineInfo> engines = Asr::listAvailableEngines( ctx );
+	for( const Asr::sAsrEngineInfo& e : engines )
+	{
+		engineIds.push_back( e.id );
+		engineSelector.AddString( e.displayName );
+	}
+
+	if( engineIds.empty() )
+		return;
+
+	// 恢复上次的选择
+	CString saved = appState.stringLoad( regValEngine );
+	int sel = -1;
+	for( size_t i = 0; i < engineIds.size(); i++ )
+	{
+		if( 0 == engineIds[ i ].CompareNoCase( saved ) )
+		{
+			sel = (int)i;
+			break;
+		}
+	}
+	if( sel < 0 )
+	{
+		// 没有记录时用默认引擎
+		const CString def = Asr::defaultEngineId();
+		for( size_t i = 0; i < engineIds.size(); i++ )
+		{
+			if( 0 == engineIds[ i ].CompareNoCase( def ) )
+			{
+				sel = (int)i;
+				break;
+			}
+		}
+	}
+	if( sel < 0 )
+		sel = 0;
+
+	engineSelector.SetCurSel( sel );
+}
+
+CString TranscribeDlg::selectedEngineId() const
+{
+	const int sel = engineSelector.GetCurSel();
+	if( sel >= 0 && sel < (int)engineIds.size() )
+		return engineIds[ sel ];
+	return Asr::defaultEngineId();
+}
+
+void TranscribeDlg::saveEngineSelection()
+{
+	const CString id = selectedEngineId();
+	if( !id.IsEmpty() )
+		appState.stringStore( regValEngine, id );
 }
 
 // CBN_SELCHANGE notification for IDC_OUTPUT_FORMAT combobox
@@ -183,7 +254,6 @@ void TranscribeDlg::onRemoveFiles()
 void TranscribeDlg::onClearFiles()
 {
 	batchItems.clear();
-	runningItem = -1;
 	refreshQueueDisplay();
 	updateQueueButtons();
 }
@@ -217,14 +287,50 @@ CString TranscribeDlg::formatStatus( eBatchState state, HRESULT hr )
 
 void TranscribeDlg::refreshQueueDisplay()
 {
+	// 保留当前选中项，避免刷新时选中状态丢失
+	const int selCount = fileList.GetSelCount();
+	std::vector<int> sel( selCount > 0 ? selCount : 0 );
+	if( selCount > 0 )
+		fileList.GetSelItems( selCount, sel.data() );
+
 	fileList.ResetContent();
+	double totalProgress = 0.0;
+	size_t runningCount = 0;
+
 	for( const BatchItem& item : batchItems )
 	{
 		CString text = formatStatus( item.state, item.result );
 		text += L" - ";
 		LPCTSTR name = PathFindFileName( item.inputPath );
 		text += name;
+
+		if( item.state == eBatchState::Running && item.slot >= 0 && item.slot < (int)slots.size() )
+		{
+			// 运行时显示进度百分比和耗时
+			const int pct = (int)slots[ item.slot ].progressPct;
+			const uint64_t elapsed = ( item.startTime != 0 && ::GetTickCount64() > item.startTime )
+				? ( ::GetTickCount64() - item.startTime ) / 1000 : 0;
+			CString extra;
+			extra.Format( L"  [%d%%  %llus]", pct, (unsigned long long)elapsed );
+			text += extra;
+			totalProgress += pct / 100.0;
+			runningCount++;
+		}
 		fileList.AddString( text );
+	}
+
+	// 恢复选中
+	for( int i : sel )
+	{
+		if( i >= 0 && i < fileList.GetCount() )
+			fileList.SetSel( i, TRUE );
+	}
+
+	// 进度条显示所有运行中任务的合计进度
+	if( runningCount > 0 )
+	{
+		const double avg = totalProgress / (double)runningCount;
+		progressBar.SetPos( (int)lround( avg * progressMaxInteger ) );
 	}
 }
 
@@ -337,67 +443,350 @@ bool TranscribeDlg::prepareBatchItems( const CString& explicitFolder )
 			return false;
 	}
 
-	runningItem = -1;
 	refreshQueueDisplay();
 	return true;
 }
 
-bool TranscribeDlg::startNextItem()
+// 查询当前可用的物理内存（字节）。失败时返回 0，调用方应退回只按核心数估算。
+static uint64_t availablePhysicalMemory()
 {
-	if( transcribeArgs.visualState != eVisualState::Running )
-		return false;
-	for( size_t i = 0; i < batchItems.size(); i++ )
-	{
-		BatchItem& item = batchItems[ i ];
-		if( item.state != eBatchState::Pending )
-			continue;
-		item.state = eBatchState::Running;
-		runningItem = (int)i;
-		transcribeArgs.pathMedia = item.inputPath;
-		transcribeArgs.pathOutput = item.outputPath;
-		progressBar.SetPos( 0 );
-		refreshQueueDisplay();
-		HRESULT hr = work.post();
-		if( FAILED( hr ) )
-		{
-			finalizeCurrentItem( hr );
-          transcribeError( L"\u65E0\u6CD5\u5C06\u8F6C\u5F55\u4EFB\u52A1\u52A0\u5165\u961F\u5217", hr );
-			return false;
-		}
-		return true;
-	}
-	return false;
+	MEMORYSTATUSEX ms{};
+	ms.dwLength = sizeof( ms );
+	if( !::GlobalMemoryStatusEx( &ms ) )
+		return 0;
+	return ms.ullAvailPhys;
 }
 
-void TranscribeDlg::finalizeCurrentItem( HRESULT hr )
+// 根据引擎能力与当前硬件给出推荐的并发数。
+//
+// 约束来自两个方向：
+// 1) GPU 引擎固定 1 个 —— 同一块显卡并发只会互相抢显存带宽，越并发越慢。
+// 2) CPU 引擎同时受核心数与可用内存限制。实测 SenseVoice int8 单实例
+//    常驻约 300MB（模型 239MB + onnxruntime 运行时），所以必须按内存封顶，
+//    否则 16GB 机器上开 8 个会直接把系统压进交换区。
+int TranscribeDlg::recommendedConcurrency( const Asr::sAsrEngineInfo& engineInfo )
 {
-	if( runningItem < 0 || runningItem >= (int)batchItems.size() )
-		return;
-	BatchItem& item = batchItems[ runningItem ];
-	item.result = hr;
-	item.state = FAILED( hr ) ? eBatchState::Failed : eBatchState::Completed;
-	runningItem = -1;
-	refreshQueueDisplay();
-	if( FAILED( hr ) )
+	if( Asr::hasFlag( engineInfo.flags, Asr::UsesGpu ) )
+		return 1;
+
+	SYSTEM_INFO si{};
+	::GetSystemInfo( &si );
+	int cores = (int)si.dwNumberOfProcessors;
+	if( cores < 1 )
+		cores = 1;
+
+	// 按核心数：留一部分给 UI、音频解码和其它进程
+	int byCores = cores * 2 / 3;
+	if( byCores < 1 )
+		byCores = 1;
+	if( byCores > 8 )
+		byCores = 8;
+
+	// 按内存：单个实例的预算 = 引擎自报的常驻内存，加上推理期间的临时缓冲余量
+	int byMemory = byCores;
+	const uint64_t avail = availablePhysicalMemory();
+	if( avail > 0 )
 	{
-     CString msg = L"\u8F6C\u5F55\u5931\u8D25";
-		if( transcribeArgs.errorMessage.GetLength() > 0 )
+		// 单实例预算：引擎自报值 * 1.5（临时缓冲/碎片余量）；没报值时按 300MB 算
+		uint64_t perInstanceMb = ( engineInfo.memoryPerInstanceMb > 0 )
+			? (uint64_t)engineInfo.memoryPerInstanceMb * 3 / 2
+			: 300;
+		if( perInstanceMb < 128 )
+			perInstanceMb = 128;
+
+		// 只允许用掉可用内存的一部分：留 1.5GB 给系统和其它程序，并且最多用 70% 可用量。
+		// 这样即便别的程序临时要内存，也不会立刻把整机拖进交换。
+		constexpr uint64_t reserveBytes = 1536ull * 1024 * 1024;
+		uint64_t usable = ( avail > reserveBytes ) ? ( avail - reserveBytes ) : 0;
+		usable = usable * 7 / 10;
+
+		const uint64_t perInstanceBytes = perInstanceMb * 1024 * 1024;
+		int memLimit = (int)( usable / perInstanceBytes );
+		if( memLimit < 1 )
+			memLimit = 1;
+		byMemory = memLimit;
+	}
+
+	const int recommended = std::min( byCores, byMemory );
+	return ( recommended < 1 ) ? 1 : recommended;
+}
+
+HRESULT TranscribeDlg::startWorkers( const CString& engineId, int concurrency )
+{
+	stopWorkers();
+
+	// 上一个批次的线程如果还没退干净，不能复用 slots（会造成悬垂访问）
+	if( !slots.empty() )
+	{
+		logError( u8"上一批工作线程尚未退出，无法启动新批次" );
+		return E_UNEXPECTED;
+	}
+
+	if( concurrency < 1 )
+		concurrency = 1;
+
+	slots.clear();
+	slots.resize( (size_t)concurrency );
+
+	Asr::AppContext appCtx;
+	appCtx.model = appState.model;
+	appCtx.mediaFoundation = appState.mediaFoundation;
+
+	for( size_t i = 0; i < slots.size(); i++ )
+	{
+		WorkerSlot& s = slots[ i ];
+		s.engineId = engineId;
+		s.gpu = Asr::isGpuEngine( engineId );
+		s.itemIndex = -1;
+		s.quit = false;
+		s.progressPct = 0;
+
+		s.thread = (HANDLE)_beginthreadex( nullptr, 0, &TranscribeDlg::workerThreadProc, this, 0, nullptr );
+		if( nullptr == s.thread )
 		{
-			msg += L"\n";
-			msg += transcribeArgs.errorMessage;
+			logError( u8"创建工作线程失败" );
+			// 先把已起的线程收掉，避免半启动状态
+			stopWorkers();
+			return E_FAIL;
 		}
-		transcribeError( msg, hr );
+	}
+
+	// 修正槽位索引：线程启动时不知道自己是第几个槽，这里通过 thread id 无法可靠映射，
+	// 改为在 workerLoop 里用一份「槽位认领」方式分配
+	return S_OK;
+}
+
+void TranscribeDlg::stopWorkers()
+{
+	if( slots.empty() )
+		return;
+
+	// 先下发退出信号
+	for( WorkerSlot& s : slots )
+		s.quit = true;
+
+	// 再逐个等待。注意：线程里会访问 slots[mySlot]，所以必须等全部线程真正退出后
+	// 才能销毁 slots；超时的情况下不强销毁，只把句柄放掉，让 slots 保留到下次 startWorkers。
+	bool allExited = true;
+	for( WorkerSlot& s : slots )
+	{
+		if( nullptr == s.thread )
+			continue;
+		const DWORD res = ::WaitForSingleObject( s.thread, 10000 );
+		if( res != WAIT_OBJECT_0 )
+		{
+			allExited = false;
+			// 不 CloseHandle，也不清 slots：线程可能还在跑，清掉会造成悬垂访问
+			continue;
+		}
+		::CloseHandle( s.thread );
+		s.thread = nullptr;
+	}
+
+	// 只有在确认全部退出后才销毁槽位数组
+	if( allExited )
+		slots.clear();
+	else
+		logError( u8"部分工作线程未能按时退出，保留槽位以避免悬垂访问" );
+}
+
+unsigned __stdcall TranscribeDlg::workerThreadProc( void* pv )
+{
+	TranscribeDlg* self = static_cast<TranscribeDlg*>( pv );
+	self->workerLoop( -1 );
+	return 0;
+}
+
+void TranscribeDlg::workerLoop( int )
+{
+	// 每个线程通过「认领空闲槽」拿到属于自己的槽位信息。
+	// 这样不用在线程启动时传结构体指针，避免生命周期问题。
+	int mySlot = -1;
+	{
+		CComCritSecLock<CComAutoCriticalSection> lock( batchCs );
+		for( size_t i = 0; i < slots.size(); i++ )
+		{
+			if( slots[ i ].threadOwnerTid == 0 )
+			{
+				slots[ i ].threadOwnerTid = ::GetCurrentThreadId();
+				mySlot = (int)i;
+				break;
+			}
+		}
+	}
+	if( mySlot < 0 )
+		return;
+
+	Asr::AppContext appCtx;
+	appCtx.model = appState.model;
+	appCtx.mediaFoundation = appState.mediaFoundation;
+
+	// 每个线程持有自己的引擎实例，避免上下文串味
+	std::unique_ptr<Asr::iAsrEngine> engine = Asr::createEngine( slots[ mySlot ].engineId, appCtx );
+	HRESULT engineHr = E_UNEXPECTED;
+	CString engineError;
+	if( !engine )
+	{
+		engineError = L"无法创建引擎实例，请检查模型是否已加载";
+	}
+	else
+	{
+		engineHr = engine->load( nullptr, true );
+		if( FAILED( engineHr ) )
+			engineError = L"引擎加载模型失败";
+	}
+	if( !engineError.IsEmpty() )
+	{
+		logError( u8"工作线程无法初始化引擎，整批任务将被标记为失败" );
+		// 把队列里所有待办任务直接标记为失败，避免用户面对一堆无意义的报错
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock( batchCs );
+			for( size_t i = 0; i < batchItems.size(); i++ )
+			{
+				BatchItem& item = batchItems[ i ];
+				if( item.state == eBatchState::Pending )
+				{
+					item.state = eBatchState::Failed;
+					item.result = engineHr;
+					item.errorMessage = engineError;
+				}
+			}
+		}
+		if( ::IsWindow( m_hWnd ) )
+			::PostMessage( m_hWnd, WM_CALLBACK_STATUS, (WPARAM)S_FALSE, (LPARAM)-1 );
+		return;
+	}
+
+	while( true )
+	{
+		if( slots[ mySlot ].quit )
+			break;
+
+		// 领取一个待办任务
+		int index = -1;
+		CString inputPath, outputPath;
+		bool notRunning = false;
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock( batchCs );
+
+			// 注意：不能再持有锁的情况下 Sleep()，否则会卡住其他工作线程
+			if( transcribeArgs.visualState != eVisualState::Running )
+				notRunning = true;
+			else
+			{
+				for( size_t i = 0; i < batchItems.size(); i++ )
+				{
+					BatchItem& item = batchItems[ i ];
+					if( item.state != eBatchState::Pending )
+						continue;
+					item.state = eBatchState::Running;
+					item.slot = mySlot;
+					item.startTime = ::GetTickCount64();
+					index = (int)i;
+					inputPath = item.inputPath;
+					outputPath = item.outputPath;
+					break;
+				}
+			}
+		}
+
+		// 不在运行状态：短暂等待后重试（可能刚启动）
+		if( notRunning )
+		{
+			::Sleep( 50 );
+			continue;
+		}
+
+		if( index < 0 )
+		{
+			// 没有待办任务：如果整批已经结束，就等主线程发退出信号
+			::Sleep( 50 );
+			continue;
+		}
+
+		slots[ mySlot ].itemIndex = index;
+		slots[ mySlot ].progressPct = 0;
+
+		HRESULT hr = transcribeFileInWorker( *engine, inputPath, outputPath, mySlot );
+		CString error;
+
+		// 如果引擎自己在工作线程里报告了错误，这里补上
+		if( FAILED( hr ) && error.IsEmpty() )
+			getLastError( error );
+
+		slots[ mySlot ].itemIndex = -1;
+		finalizeItem( index, hr, error, mySlot );
+	}
+
+	// 线程退出前清掉认领标记
+	{
+		CComCritSecLock<CComAutoCriticalSection> lock( batchCs );
+		if( mySlot >= 0 && mySlot < (int)slots.size() )
+			slots[ mySlot ].threadOwnerTid = 0;
+	}
+}
+
+void TranscribeDlg::finalizeItem( int itemIndex, HRESULT hr, const CString& error, int slotIndex )
+{
+	bool allDone = false;
+	size_t counts[ 4 ] = {};
+	{
+		CComCritSecLock<CComAutoCriticalSection> lock( batchCs );
+		if( itemIndex < 0 || itemIndex >= (int)batchItems.size() )
+			return;
+
+		BatchItem& item = batchItems[ itemIndex ];
+		item.result = hr;
+		item.state = FAILED( hr ) ? eBatchState::Failed : eBatchState::Completed;
+		item.errorMessage = error;
+		item.slot = -1;
+
+		if( slotIndex >= 0 && slotIndex < (int)slots.size() )
+			slots[ slotIndex ].progressPct = 0;
+
+		// 统计是否全部结束
+		bool finished = true;
+		size_t done = 0, failed = 0, pending = 0;
+		for( const BatchItem& it : batchItems )
+		{
+			switch( it.state )
+			{
+			case eBatchState::Completed: done++; break;
+			case eBatchState::Failed: failed++; break;
+			case eBatchState::Pending: pending++; finished = false; break;
+			default: finished = false; break;
+			}
+		}
+		counts[ 0 ] = done;
+		counts[ 1 ] = failed;
+		counts[ 2 ] = pending;
+		allDone = finished;
+	}
+
+	// 通知主线程刷新 UI
+	if( ::IsWindow( m_hWnd ) )
+		::PostMessage( m_hWnd, WM_CALLBACK_STATUS, (WPARAM)hr, (LPARAM)itemIndex );
+
+	if( allDone )
+	{
+		// 让主线程收尾
+		if( ::IsWindow( m_hWnd ) )
+			::PostMessage( m_hWnd, WM_CALLBACK_STATUS, (WPARAM)S_FALSE, (LPARAM)-1 );
 	}
 }
 
 void TranscribeDlg::finishBatch( bool canceled )
 {
 	transcribeArgs.visualState = eVisualState::Idle;
+	stopWorkers();
+	KillTimer( 1 );
+
 	setPending( false );
-    transcribeButton.SetWindowText( L"\u8F6C\u5F55" );
+	transcribeButton.SetWindowText( L"\u8F6C\u5F55" );
 	transcribeButton.EnableWindow( TRUE );
 	progressBar.SetPos( 0 );
 	updateQueueButtons();
+	refreshQueueDisplay();
 
 	size_t completed = 0;
 	size_t failed = 0;
@@ -421,15 +810,14 @@ void TranscribeDlg::finishBatch( bool canceled )
 	}
 	CString summary;
 	if( canceled )
-     summary = L"\u6279\u91CF\u4EFB\u52A1\u5728\u5904\u7406\u5B8C\u6240\u6709\u6587\u4EF6\u524D\u5DF2\u505C\u6B62\u3002";
+		summary = L"\u6279\u91CF\u4EFB\u52A1\u5728\u5904\u7406\u5B8C\u6240\u6709\u6587\u4EF6\u524D\u5DF2\u505C\u6B62\u3002";
 	else
-      summary = L"\u6279\u91CF\u8F6C\u5F55\u5DF2\u5B8C\u6210\u3002";
+		summary = L"\u6279\u91CF\u8F6C\u5F55\u5DF2\u5B8C\u6210\u3002";
 	summary.AppendFormat( L"\n\u5B8C\u6210: %zu\n\u5931\u8D25: %zu", completed, failed );
 	if( pending > 0 )
-        summary.AppendFormat( L"\n\u5F85\u5904\u7406: %zu", pending );
+		summary.AppendFormat( L"\n\u5F85\u5904\u7406: %zu", pending );
 	MessageBox( summary, L"\u8F6C\u5F55", MB_OK | MB_ICONINFORMATION );
 }
-
 
 void TranscribeDlg::onInputFolderCheck()
 {
@@ -475,6 +863,8 @@ void TranscribeDlg::onTranscribe()
 		return;
 
 	transcribeArgs.format = (eOutputFormat)(uint8_t)transcribeOutFormat.GetCurSel();
+	transcribeArgs.engineId = selectedEngineId();
+	saveEngineSelection();
 	CString explicitFolder;
 	if( transcribeArgs.format == eOutputFormat::None )
 		cbConsole.ensureChecked();
@@ -487,6 +877,17 @@ void TranscribeDlg::onTranscribe()
 
 	appState.dwordStore( regValOutFormat, (uint32_t)(int)transcribeArgs.format );
 	appState.boolStore( regValUseInputFolder, isChecked( useInputFolder ) );
+	
+	// 读取用户指定的并发数，0 或非法值表示用推荐值
+	{
+		CString concStr;
+		GetDlgItem( IDC_CONCURRENCY ).GetWindowText( concStr );
+		requestedConcurrency = _ttoi( concStr );
+		if( requestedConcurrency < 0 )
+			requestedConcurrency = 0;
+		if( requestedConcurrency > 0 )
+			appState.dwordStore( regValConcurrency, (uint32_t)requestedConcurrency );
+	}
 	languageSelector.saveSelection( appState );
 	cbTranslate.saveSelection( appState );
 	if( !explicitFolder.IsEmpty() )
@@ -501,14 +902,83 @@ void TranscribeDlg::onTranscribe()
 	transcribeArgs.visualState = eVisualState::Running;
   transcribeButton.SetWindowText( L"\u505C\u6B62" );
 	updateQueueButtons();
-	if( !startNextItem() )
-		finishBatch( true );
-}
 
-void __stdcall TranscribeDlg::poolCallback() noexcept
-{
-	HRESULT hr = transcribe();
-	PostMessage( WM_CALLBACK_STATUS, (WPARAM)hr );
+	// 并发数：GPU 引擎固定 1，CPU 引擎按硬件推荐值，用户可覆盖
+	int recommended = 1;
+	Asr::sAsrEngineInfo activeInfo;
+	bool haveInfo = false;
+	{
+		Asr::AppContext ctx;
+		ctx.model = appState.model;
+		ctx.mediaFoundation = appState.mediaFoundation;
+		const std::vector<Asr::sAsrEngineInfo> engines = Asr::listAvailableEngines( ctx );
+		for( const Asr::sAsrEngineInfo& e : engines )
+		{
+			if( 0 == e.id.CompareNoCase( transcribeArgs.engineId ) )
+			{
+				recommended = recommendedConcurrency( e );
+				activeInfo = e;
+				haveInfo = true;
+				break;
+			}
+		}
+	}
+
+	int concurrency = recommended;
+	if( requestedConcurrency > 0 )
+	{
+		concurrency = requestedConcurrency;
+		// 用户手填的值也要过一遍硬件限制，否则填个 64 会把机器直接打爆
+		if( haveInfo && !Asr::hasFlag( activeInfo.flags, Asr::UsesGpu ) )
+		{
+			const int cap = recommendedConcurrency( activeInfo );
+			if( concurrency > cap )
+			{
+				CString msg;
+				msg.Format( L"\u5E76\u53D1\u6570 %d \u8D85\u8FC7\u5F53\u524D\u786C\u4EF6\u5EFA\u8BAE\u4E0A\u9650\uff0c\u5DF2\u8C03\u6574\u4E3A %d\u3002",
+					concurrency, cap );
+				logWarning( u8"并发数超过硬件建议上限，已下调" );
+				concurrency = cap;
+			}
+		}
+		else if( haveInfo && Asr::hasFlag( activeInfo.flags, Asr::UsesGpu ) && concurrency > 1 )
+		{
+			// GPU 引擎并发无收益，直接压回 1
+			concurrency = 1;
+		}
+	}
+
+	// 并发数不应该超过待办文件数：多出来的线程会白加载一遍模型（每个约 1.6 秒 / 320MB），
+	// 只会浪费时间和内存，没有任何收益。
+	{
+		size_t pendingCount = 0;
+		for( const BatchItem& item : batchItems )
+		{
+			if( item.state == eBatchState::Pending )
+				pendingCount++;
+		}
+		if( pendingCount > 0 && (size_t)concurrency > pendingCount )
+			concurrency = (int)pendingCount;
+		if( concurrency < 1 )
+			concurrency = 1;
+	}
+
+	HRESULT hr = startWorkers( transcribeArgs.engineId, concurrency );
+	if( FAILED( hr ) )
+	{
+		transcribeError( L"\u65E0\u6CD5\u521B\u5EFA\u5DE5\u4F5C\u7EBF\u7A0B", hr );
+		finishBatch( true );
+		return;
+	}
+	// 运行期间每 500ms 刷新一次进度显示
+	SetTimer( 1, 500 );
+
+	// 把实际使用的并发数写回输入框，让用户看到「自动」到底算出了多少
+	{
+		CString tmp;
+		tmp.Format( L"%d", concurrency );
+		concurrencyEdit.SetWindowText( tmp );
+	}
 }
 
 static void printTime( CString& rdi, int64_t ticks )
@@ -529,115 +999,149 @@ static void printTime( CString& rdi, int64_t ticks )
    rdi.AppendFormat( L"%.3f \u79D2", (double)ticks / 1E7 );
 }
 
-LRESULT TranscribeDlg::onCallbackStatus( UINT, WPARAM wParam, LPARAM, BOOL& )
+// 运行期间定时刷新队列显示（进度、耗时）
+LRESULT TranscribeDlg::onTimer( UINT, WPARAM wParam, LPARAM, BOOL& )
 {
-	const HRESULT hr = (HRESULT)wParam;
-	finalizeCurrentItem( hr );
-
-	if( transcribeArgs.visualState == eVisualState::Stopping )
-	{
-		finishBatch( true );
-		return 0;
-	}
-
-	if( startNextItem() )
-		return 0;
-
-	finishBatch( false );
+	constexpr UINT_PTR timerId = 1;
+	if( wParam == timerId && transcribeArgs.visualState == eVisualState::Running )
+		refreshQueueDisplay();
 	return 0;
 }
 
-void TranscribeDlg::getThreadError()
+// 工作线程完成任务后回投的消息。
+// wParam = 该任务的 HRESULT，lParam = 队列索引；lParam == -1 表示整批结束。
+LRESULT TranscribeDlg::onCallbackStatus( UINT, WPARAM wParam, LPARAM lParam, BOOL& )
 {
-	getLastError( transcribeArgs.errorMessage );
+	const int itemIndex = (int)lParam;
+	const HRESULT hr = (HRESULT)wParam;
+
+	// 刷新队列显示（状态已在工作线程里更新好了）
+	refreshQueueDisplay();
+
+	// 如果是「整批结束」的通知
+	if( itemIndex < 0 )
+	{
+		if( transcribeArgs.visualState == eVisualState::Stopping )
+		{
+			finishBatch( true );
+			return 0;
+		}
+		finishBatch( false );
+		return 0;
+	}
+
+	// 单个任务失败时，把该任务自己的错误信息提示出来，但不中断整批
+	if( FAILED( hr ) && itemIndex < (int)batchItems.size() )
+	{
+		const BatchItem& item = batchItems[ itemIndex ];
+		CString msg = L"\u8F6C\u5F55\u5931\u8D25:\n";
+		msg += PathFindFileName( item.inputPath );
+		if( !item.errorMessage.IsEmpty() )
+		{
+			msg += L"\n";
+			msg += item.errorMessage;
+		}
+		transcribeError( msg, hr );
+	}
+
+	return 0;
 }
 
-#define CHECK_EX( hr ) { const HRESULT __hr = ( hr ); if( FAILED( __hr ) ) { getThreadError(); return __hr; } }
-
-HRESULT TranscribeDlg::transcribe()
+// 在工作线程里把单个文件转成文本。
+// engine 由调用方持有并复用，避免每个文件都重新加载模型。
+// 这里不碰 UI 控件，所有跨线程通知都通过槽位 + PostMessage。
+HRESULT TranscribeDlg::transcribeFileInWorker( Asr::iAsrEngine& engine, const CString& mediaPath, const CString& outputPath, int slotIndex )
 {
-	transcribeArgs.startTime = GetTickCount64();
 	clearLastError();
-	transcribeArgs.errorMessage = L"";
 
-	using namespace Whisper;
-	CComPtr<iAudioReader> reader;
+	Asr::sAsrParams params;
+	params.language = transcribeArgs.language;
+	params.translate = transcribeArgs.translate;
+	params.wantTimestamps = ( transcribeArgs.format == eOutputFormat::TextTimestamps ||
+		transcribeArgs.format == eOutputFormat::SubRip ||
+		transcribeArgs.format == eOutputFormat::WebVTT );
 
-	CHECK_EX( appState.mediaFoundation->openAudioFile( transcribeArgs.pathMedia, false, &reader ) );
+	// 进度：换算成百分比存进槽位，主线程定时刷新进度条
+	params.onProgress = [ this, slotIndex ]( double p ) -> HRESULT
+	{
+		if( slotIndex >= 0 && slotIndex < (int)slots.size() )
+			slots[ slotIndex ].progressPct = (LONG)lround( p * 100.0 );
+		return ( transcribeArgs.visualState == eVisualState::Running ) ? S_OK : S_FALSE;
+	};
 
-	const eOutputFormat format = transcribeArgs.format;
-	CAtlFile outputFile;
-	if( format != eOutputFormat::None )
-		CHECK( outputFile.Create( transcribeArgs.pathOutput, GENERIC_WRITE, 0, CREATE_ALWAYS ) );
+	params.onSegment = [ this ]( const Asr::sAsrSegment& seg ) -> HRESULT
+	{
+		// 与改动前 newSegmentCallback -> logNewSegments 的输出格式保持一致
+		CStringA line;
+		line = "[";
+		printTime( line, Whisper::sTimeSpan{ seg.beginTicks } );
+		line += " --> ";
+		printTime( line, Whisper::sTimeSpan{ seg.endTicks } );
+		line += "]  ";
+		line += seg.text.c_str();
+		logInfo( u8"%s", cstr( line ) );
+		return S_OK;
+	};
 
-	transcribeArgs.resultFlags = eResultFlags::Timestamps | eResultFlags::Tokens;
+	params.shouldContinue = [ this ]() -> HRESULT
+	{
+		return ( transcribeArgs.visualState == eVisualState::Running ) ? S_OK : S_FALSE;
+	};
 
-	CComPtr<iContext> context;
-	CHECK_EX( appState.model->createContext( &context ) );
+	Asr::sAsrResult asrResult;
+	const HRESULT hr = transcribeWithEngine( engine, mediaPath, params, asrResult );
+	if( FAILED( hr ) )
+		return hr;
 
-	sFullParams fullParams;
-	CHECK_EX( context->fullDefaultParams( eSamplingStrategy::Greedy, &fullParams ) );
-	fullParams.language = transcribeArgs.language;
-	fullParams.setFlag( eFullParamsFlags::Translate, transcribeArgs.translate );
-	fullParams.resetFlag( eFullParamsFlags::PrintRealtime );
+	// 用户点了停止，不写半截文件
+	if( transcribeArgs.visualState != eVisualState::Running &&
+		transcribeArgs.visualState != eVisualState::Idle )
+		return S_FALSE;
 
-	// Setup the callbacks
-	fullParams.new_segment_callback = &newSegmentCallbackStatic;
-	fullParams.new_segment_callback_user_data = this;
-	fullParams.encoder_begin_callback = &encoderBeginCallback;
-	fullParams.encoder_begin_callback_user_data = this;
-
-	// Setup the progress indication sink
-	sProgressSink progressSink{ &progressCallbackStatic, this };
-	// Run the transcribe
-	CHECK_EX( context->runStreamed( fullParams, progressSink, reader ) );
-
-	// Once finished, query duration of the audio.
-	// The duration before the processing is sometimes different, by 20 seconds for the file in that issue:
-	// https://github.com/Const-me/Whisper/issues/4
-	CHECK_EX( reader->getDuration( transcribeArgs.mediaDuration ) );
-
-	context->timingsPrint();
-
-	if( format == eOutputFormat::None )
+	if( transcribeArgs.format == eOutputFormat::None )
 		return S_OK;
 
-	CComPtr<iTranscribeResult> result;
-	CHECK_EX( context->getResults( transcribeArgs.resultFlags, &result ) );
+	CAtlFile outputFile;
+	CHECK( outputFile.Create( outputPath, GENERIC_WRITE, 0, CREATE_ALWAYS ) );
 
-	sTranscribeLength len;
-	CHECK_EX( result->getSize( len ) );
-	const sSegment* const segments = result->getSegments();
+	const Asr::sAsrSegment* const segments = asrResult.segments.data();
+	const size_t count = asrResult.segments.size();
 
-	switch( format )
+	switch( transcribeArgs.format )
 	{
 	case eOutputFormat::Text:
-		return writeTextFile( segments, len.countSegments, outputFile, false );
+		return writeTextFile( segments, count, outputFile, false );
 	case eOutputFormat::TextTimestamps:
-		return writeTextFile( segments, len.countSegments, outputFile, true );
+		return writeTextFile( segments, count, outputFile, true );
 	case eOutputFormat::SubRip:
-		return writeSubRip( segments, len.countSegments, outputFile );
+		return writeSubRip( segments, count, outputFile );
 	case eOutputFormat::WebVTT:
-		return writeWebVTT( segments, len.countSegments, outputFile );
+		return writeWebVTT( segments, count, outputFile );
 	default:
 		return E_FAIL;
 	}
 }
 
-#undef CHECK_EX
-
-inline HRESULT TranscribeDlg::progressCallback( double p ) noexcept
+HRESULT TranscribeDlg::transcribeWithEngine( Asr::iAsrEngine& engine, LPCTSTR mediaPath, const Asr::sAsrParams& params, Asr::sAsrResult& result )
 {
-	constexpr double mul = progressMaxInteger;
-	int pos = lround( mul * p );
-	progressBar.PostMessage( PBM_SETPOS, pos, 0 );
-	return S_OK;
-}
+	// Whisper 的 GPU 引擎内部自带 Media Foundation 增量解码（边读边算，不需要把整段 PCM 读进内存），
+	// 对长文件更省内存，也保留了原有的流式进度上报。
+	Asr::WhisperEngine* whisperImpl = dynamic_cast<Asr::WhisperEngine*>( &engine );
+	if( nullptr != whisperImpl )
+		return whisperImpl->transcribeFile( mediaPath, params, result );
 
-HRESULT __cdecl TranscribeDlg::progressCallbackStatic( double p, Whisper::iContext* ctx, void* pv ) noexcept
-{
-	TranscribeDlg* dlg = (TranscribeDlg*)pv;
-	return dlg->progressCallback( p );
+	// 其它引擎（SenseVoice 等）统一走「整段 PCM in / 结果 out」的路径。
+	CComPtr<Whisper::iAudioBuffer> buffer;
+	HRESULT hr = appState.mediaFoundation->loadAudioFile( mediaPath, false, &buffer );
+	if( FAILED( hr ) )
+		return hr;
+
+	const float* const pcm = buffer->getPcmMono();
+	const uint32_t count = buffer->countSamples();
+	if( nullptr == pcm || 0 == count )
+		return E_INVALIDARG;
+
+	return engine.run( pcm, count, params, result );
 }
 
 namespace
@@ -665,57 +1169,59 @@ namespace
 }
 
 using Whisper::sSegment;
+using Asr::sAsrSegment;
 
-
-HRESULT TranscribeDlg::writeTextFile( const sSegment* const segments, const size_t length, CAtlFile& file, bool timestamps )
+HRESULT TranscribeDlg::writeTextFile( const sAsrSegment* const segments, const size_t length, CAtlFile& file, bool timestamps )
 {
 	using namespace Whisper;
 	CHECK( writeUtf8Bom( file ) );
 	CStringA line;
 	for( size_t i = 0; i < length; i++ )
 	{
-		const sSegment& seg = segments[ i ];
+		const sAsrSegment& seg = segments[ i ];
 
 		if( timestamps )
 		{
 			line = "[";
-			printTime( line, seg.time.begin );
+			printTime( line, sTimeSpan{ seg.beginTicks } );
 			line += " --> ";
-			printTime( line, seg.time.end );
+			printTime( line, sTimeSpan{ seg.endTicks } );
 			line += "]  ";
 		}
 		else
 			line = "";
 
-		line += skipBlank( seg.text );
+		line += skipBlank( seg.text.c_str() );
 		line += "\r\n";
 		CHECK( write( file, line ) );
 	}
 	return S_OK;
 }
 
-HRESULT TranscribeDlg::writeSubRip( const sSegment* const segments, const size_t length, CAtlFile& file )
+HRESULT TranscribeDlg::writeSubRip( const sAsrSegment* const segments, const size_t length, CAtlFile& file )
 {
+	using namespace Whisper;
 	CHECK( writeUtf8Bom( file ) );
 	CStringA line;
 	for( size_t i = 0; i < length; i++ )
 	{
-		const sSegment& seg = segments[ i ];
+		const sAsrSegment& seg = segments[ i ];
 
 		line.Format( "%zu\r\n", i + 1 );
-		printTime( line, seg.time.begin, true );
+		printTime( line, sTimeSpan{ seg.beginTicks }, true );
 		line += " --> ";
-		printTime( line, seg.time.end, true );
+		printTime( line, sTimeSpan{ seg.endTicks }, true );
 		line += "\r\n";
-		line += skipBlank( seg.text );
+		line += skipBlank( seg.text.c_str() );
 		line += "\r\n\r\n";
 		CHECK( write( file, line ) );
 	}
 	return S_OK;
 }
 
-HRESULT TranscribeDlg::writeWebVTT( const sSegment* const segments, const size_t length, CAtlFile& file )
+HRESULT TranscribeDlg::writeWebVTT( const sAsrSegment* const segments, const size_t length, CAtlFile& file )
 {
+	using namespace Whisper;
 	CHECK( writeUtf8Bom( file ) );
 	CStringA line;
 	line = "WEBVTT\r\n\r\n";
@@ -723,49 +1229,18 @@ HRESULT TranscribeDlg::writeWebVTT( const sSegment* const segments, const size_t
 
 	for( size_t i = 0; i < length; i++ )
 	{
-		const sSegment& seg = segments[ i ];
+		const sAsrSegment& seg = segments[ i ];
 		line = "";
 
-		printTime( line, seg.time.begin, false );
+		printTime( line, sTimeSpan{ seg.beginTicks }, false );
 		line += " --> ";
-		printTime( line, seg.time.end, false );
+		printTime( line, sTimeSpan{ seg.endTicks }, false );
 		line += "\r\n";
-		line += skipBlank( seg.text );
+		line += skipBlank( seg.text.c_str() );
 		line += "\r\n\r\n";
 		CHECK( write( file, line ) );
 	}
 	return S_OK;
-}
-
-inline HRESULT TranscribeDlg::newSegmentCallback( Whisper::iContext* ctx, uint32_t n_new )
-{
-	using namespace Whisper;
-	CComPtr<iTranscribeResult> result;
-	CHECK( ctx->getResults( transcribeArgs.resultFlags, &result ) );
-	return logNewSegments( result, n_new );
-}
-
-HRESULT __cdecl TranscribeDlg::newSegmentCallbackStatic( Whisper::iContext* ctx, uint32_t n_new, void* user_data ) noexcept
-{
-	TranscribeDlg* dlg = (TranscribeDlg*)user_data;
-	return dlg->newSegmentCallback( ctx, n_new );
-}
-
-HRESULT __cdecl TranscribeDlg::encoderBeginCallback( Whisper::iContext* ctx, void* user_data ) noexcept
-{
-	TranscribeDlg* dlg = (TranscribeDlg*)user_data;
-	const eVisualState visualState = dlg->transcribeArgs.visualState;
-	switch( visualState )
-	{
-	case eVisualState::Idle:
-		return E_NOT_VALID_STATE;
-	case eVisualState::Running:
-		return S_OK;
-	case eVisualState::Stopping:
-		return S_FALSE;
-	default:
-		return E_UNEXPECTED;
-	}
 }
 
 void TranscribeDlg::onWmClose()

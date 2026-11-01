@@ -57,6 +57,9 @@
 #define IDC_ADD_FILES                   1032
 #define IDC_REMOVE_FILE                 1033
 #define IDC_CLEAR_FILES                 1034
+#define IDC_ENGINE                      1035
+#define IDC_CONCURRENCY                 1036
+#define IDC_CONCURRENCY_LBL             1037
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
