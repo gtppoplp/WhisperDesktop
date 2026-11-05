@@ -97,7 +97,16 @@ namespace Asr
 		}
 
 		// 手动指定模型目录（含 model*.onnx 与 tokens.txt）
-		HRESULT loadFromDirectory( LPCTSTR directory, int threads );
+		// provider: "cpu" / "cuda"；传 nullptr 用 "cpu"
+		HRESULT loadFromDirectory( LPCTSTR directory, int threads, LPCTSTR provider = nullptr );
+
+		// 实际生效的执行后端，加载后用这个判断运行在 CPU 还是 GPU 上
+		CString activeProvider;
+		// 请求 GPU 但回退到 CPU 时的原因，用于向用户解释
+		CString fallbackReason;
+
+		// 检测 CUDA 是否真的可用（DLL 能加载 + 显卡枚举得到）
+		static bool cudaAvailable( CString& reason );
 
 		// 把 Whisper 的语言 key 转成 sherpa 认识的字符串
 		static const char* languageCodeFromKey( uint32_t key );

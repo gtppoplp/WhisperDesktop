@@ -14,6 +14,8 @@ namespace
 	const LPCTSTR regValLang = L"language";
 	const LPCTSTR regValLastScreen = L"screen";
 	const LPCTSTR regValGpuFlags = L"gpuFlags";
+	const LPCTSTR regValEngine = L"engine";
+	const LPCTSTR regValSenseVoiceDir = L"senseVoiceDir";
 
 	static HRESULT readString( CRegKey& k, LPCTSTR name, CString& rdi )
 	{
@@ -101,6 +103,28 @@ AppState::~AppState()
 
 HRESULT AppState::findModelSource()
 {
+	source.found = false;
+
+	// 先确定用哪个引擎。SenseVoice 不需要 .bin 模型。
+	readString( registryKey, regValEngine, engineId );
+	readString( registryKey, regValSenseVoiceDir, senseVoiceDir );
+
+	if( 0 == engineId.CompareNoCase( L"sherpa-sensevoice" ) )
+	{
+		// SenseVoice 模式：只要模型目录还在就算就绪
+		if( !senseVoiceDir.IsEmpty() )
+		{
+			wchar_t tokens[ MAX_PATH ] = {};
+			if( ( ::PathCombineW( tokens, senseVoiceDir, L"tokens.txt" ) && ::PathFileExistsW( tokens ) ) )
+			{
+				source.path = senseVoiceDir;
+				source.found = true;
+			}
+		}
+		return source.found ? S_OK : S_FALSE;
+	}
+
+	// Whisper 模式：保持原有行为
 	CHECK( readString( registryKey, regValPath, source.path ) );
 
 	{
@@ -120,6 +144,17 @@ HRESULT AppState::findModelSource()
 
 HRESULT AppState::saveModelSource()
 {
+	// 引擎 id 与 SenseVoice 目录无条件保存
+	registryKey.SetStringValue( regValEngine, engineId );
+	if( senseVoiceDir.IsEmpty() )
+		registryKey.DeleteValue( regValSenseVoiceDir );
+	else
+		registryKey.SetStringValue( regValSenseVoiceDir, senseVoiceDir );
+
+	// SenseVoice 模式下没有 Whisper 模型路径可存
+	if( 0 == engineId.CompareNoCase( L"sherpa-sensevoice" ) )
+		return S_OK;
+
 	LSTATUS lss = registryKey.SetStringValue( regValPath, source.path );
 	if( lss != ERROR_SUCCESS )
 		return HRESULT_FROM_WIN32( lss );

@@ -33,31 +33,28 @@ namespace Asr
 		}
 
 		// 判断 sherpa-onnx 是否真的可用（DLL + 模型都在）。
-		// 第一次调用会真正 LoadLibrary，结果缓存起来，避免 UI 反复填充下拉框时重复加载。
+		// DLL 加载结果由 SherpaApi 单例缓存；模型文件检测每次都做，
+		// 这样用户把模型放进去之后不需要重启程序就能看到 SenseVoice 选项。
 		bool senseVoiceAvailable()
 		{
-			static const bool cached = []
-			{
-				if( !SherpaApi::instance().available() )
-					return false;
-
-				const CString dir = senseVoiceModelDir();
-				if( dir.IsEmpty() )
-					return false;
-
-				wchar_t buf[ MAX_PATH ] = {};
-				if( !::PathCombineW( buf, dir, L"tokens.txt" ) || !::PathFileExistsW( buf ) )
-					return false;
-
-				static const LPCTSTR models[] = { L"model.int8.onnx", L"model.onnx", L"model.fp32.onnx" };
-				for( LPCTSTR name : models )
-				{
-					if( ::PathCombineW( buf, dir, name ) && ::PathFileExistsW( buf ) )
-						return true;
-				}
+			if( !SherpaApi::instance().available() )
 				return false;
-			}();
-			return cached;
+
+			const CString dir = senseVoiceModelDir();
+			if( dir.IsEmpty() )
+				return false;
+
+			wchar_t buf[ MAX_PATH ] = {};
+			if( !::PathCombineW( buf, dir, L"tokens.txt" ) || !::PathFileExistsW( buf ) )
+				return false;
+
+			static const LPCTSTR models[] = { L"model.int8.onnx", L"model.onnx", L"model.fp32.onnx" };
+			for( LPCTSTR name : models )
+			{
+				if( ::PathCombineW( buf, dir, name ) && ::PathFileExistsW( buf ) )
+					return true;
+			}
+			return false;
 		}
 	}
 

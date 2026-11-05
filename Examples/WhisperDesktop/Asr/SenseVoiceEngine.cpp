@@ -192,11 +192,28 @@ namespace Asr
 
 	HRESULT SenseVoiceEngine::load( LPCTSTR directory, bool useGpu )
 	{
-		UNREFERENCED_PARAMETER( useGpu );
-		return loadFromDirectory( directory, 0 );
+		return loadFromDirectory( directory, 0, useGpu ? L"cuda" : nullptr );
 	}
 
-	HRESULT SenseVoiceEngine::loadFromDirectory( LPCTSTR directory, int threads )
+	// 检测 CUDA 是否可用。这里的判断是「乐观」的：
+	// 只要 sherpa-onnx 能创建出 cuda 识别器就算可用，实际能不能跑由创建时的返回值决定。
+	// 单独抽出来是为了能在加载前给用户一个明确的提示，而不是加载失败后才发现。
+	bool SenseVoiceEngine::cudaAvailable( CString& reason )
+	{
+		// CUDA 版 sherpa 依赖 cudart / cudnn 等一堆 DLL，缺任何一个都会创建失败。
+		// 这里先粗查一下 onnxruntime 的 CUDA provider DLL 是否在搜索路径上。
+		const HMODULE mod = ::LoadLibraryW( L"onnxruntime_providers_cuda.dll" );
+		if( nullptr == mod )
+		{
+			reason = L"未找到 onnxruntime_providers_cuda.dll。需要 CUDA 版 sherpa-onnx 与 CUDA/cuDNN 运行库。";
+			return false;
+		}
+		::FreeLibrary( mod );
+		reason.Empty();
+		return true;
+	}
+
+	HRESULT SenseVoiceEngine::loadFromDirectory( LPCTSTR directory, int threads, LPCTSTR provider )
 	{
 		auto& api = SherpaApi::instance();
 		if( !api.available() )
@@ -241,20 +258,57 @@ namespace Asr
 		CStringA tokensA( CW2A( tokensPath, CP_UTF8 ) );
 		const char* langStr = "auto";
 
-		SherpaOnnxOfflineRecognizerConfig config;
-		memset( &config, 0, sizeof( config ) );
-		config.feat_config.sample_rate = 16000;
-		config.feat_config.feature_dim = 80;
-		config.model_config.sense_voice.model = modelA;
-		config.model_config.sense_voice.language = langStr;
-		config.model_config.sense_voice.use_itn = 1;
-		config.model_config.tokens = tokensA;
-		config.model_config.num_threads = ( threads > 0 ) ? threads : 1;
-		config.model_config.provider = "cpu";
-		config.model_config.debug = 0;
-		config.decoding_method = "greedy_search";
+		// 决定执行后端。请求 GPU 但失败时自动回退到 CPU，而不是整个加载失败——
+		// 用户至少还能用 CPU 跑完这批任务。
+		CString requested = ( provider && provider[ 0 ] ) ? provider : L"cpu";
+		bool wantGpu = ( 0 == requested.CompareNoCase( L"cuda" ) );
+		CString activeName = L"cpu";
 
-		const SherpaOnnxOfflineRecognizer* rec = static_cast<const SherpaOnnxOfflineRecognizer*>( api.createOfflineRecognizer( &config ) );
+		auto makeRecognizer = [ & ]( const char* providerName ) -> const SherpaOnnxOfflineRecognizer*
+		{
+			SherpaOnnxOfflineRecognizerConfig config;
+			memset( &config, 0, sizeof( config ) );
+			config.feat_config.sample_rate = 16000;
+			config.feat_config.feature_dim = 80;
+			config.model_config.sense_voice.model = modelA;
+			config.model_config.sense_voice.language = langStr;
+			config.model_config.sense_voice.use_itn = 1;
+			config.model_config.tokens = tokensA;
+			config.model_config.num_threads = ( threads > 0 ) ? threads : 1;
+			config.model_config.provider = providerName;
+			config.model_config.debug = 0;
+			config.decoding_method = "greedy_search";
+
+			return static_cast<const SherpaOnnxOfflineRecognizer*>( api.createOfflineRecognizer( &config ) );
+		};
+
+		const SherpaOnnxOfflineRecognizer* rec = nullptr;
+		fallbackReason.Empty();
+
+		if( wantGpu )
+		{
+			CString reason;
+			if( !cudaAvailable( reason ) )
+			{
+				fallbackReason = reason;
+				logWarning( u8"CUDA 不可用，回退到 CPU" );
+			}
+			else
+			{
+				rec = makeRecognizer( "cuda" );
+				if( nullptr != rec )
+					activeName = L"cuda";
+				else
+				{
+					fallbackReason = L"CUDA 版识别器创建失败（可能缺少 cuDNN 或显卡不支持），已回退到 CPU。";
+					logWarning( u8"CUDA 识别器创建失败，回退到 CPU" );
+				}
+			}
+		}
+
+		if( nullptr == rec )
+			rec = makeRecognizer( "cpu" );
+
 		if( nullptr == rec )
 		{
 			logError( u8"SenseVoice 创建识别器失败，模型文件可能不完整" );
@@ -264,8 +318,19 @@ namespace Asr
 		if( nullptr != recognizer )
 			api.destroyOfflineRecognizer( recognizer );
 		recognizer = rec;
+		activeProvider = activeName;
 
-		logInfo( u8"SenseVoice 引擎已加载，%d 线程", config.model_config.num_threads );
+		// 实际用上 GPU 后，能力标志要跟着变：同一块卡上多并发只会互相抢显存
+		engineInfo.flags = UsesCpu | SupportsTimestamps | SupportsLanguage;
+		if( 0 == activeName.CompareNoCase( L"cuda" ) )
+		{
+			engineInfo.flags = UsesGpu | SupportsTimestamps | SupportsLanguage;
+			engineInfo.cpuThreadsPerInstance = 0;
+			// 显存占用约 1GB，但调度器看的是系统内存，这里给个保守值
+			engineInfo.memoryPerInstanceMb = 256;
+		}
+
+		logInfo( u8"SenseVoice 引擎已加载（%s）", ( 0 == activeName.CompareNoCase( L"cuda" ) ) ? "CUDA" : "CPU" );
 		return S_OK;
 	}
 

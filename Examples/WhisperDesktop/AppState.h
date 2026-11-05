@@ -17,6 +17,12 @@ public:
 	};
 	ModelSource source;
 
+	// 当前选中的识别引擎 id（"whisper-gpu" / "sherpa-sensevoice"）。
+	// 为空表示跟随 AppState::model（只有 Whisper 时）。
+	CString engineId;
+	// SenseVoice 的模型目录
+	CString senseVoiceDir;
+
 	DebugConsole console;
 	CComPtr<Whisper::iMediaFoundation> mediaFoundation;
 	CComPtr<Whisper::iModel> model;

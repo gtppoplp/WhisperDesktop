@@ -23,6 +23,7 @@ public:
 		COMMAND_ID_HANDLER( IDCANCEL, OnCommand )
 		COMMAND_ID_HANDLER( IDOK, OnOk )
 		COMMAND_ID_HANDLER( IDC_BROWSE, OnBrowse )
+		COMMAND_HANDLER( IDC_MODEL_KIND, CBN_SELCHANGE, onKindChange )
 		MESSAGE_HANDLER( WM_CALLBACK_STATUS, OnCallbackStatus )
 		NOTIFY_ID_HANDLER( IDC_HYPERLINKS, OnHyperlink )
 		ON_BUTTON_CLICK( IDC_MODEL_ADV, onModelAdvanced )
@@ -31,16 +32,30 @@ public:
 	BEGIN_DDX_MAP( LoadModelDlg )
 		DDX_CONTROL_HANDLE( IDC_PATH, modelPath )
 		DDX_CONTROL_HANDLE( IDC_MODEL_TYPE, cbModelType )
+		DDX_CONTROL_HANDLE( IDC_MODEL_KIND, cbModelKind )
 		DDX_CONTROL_HANDLE( IDC_PROGRESS, progressBar );
 	END_DDX_MAP()
 	
 private:
+	// 「引擎类型」下拉框的选项，索引要与 combobox 顺序一致
+	enum struct eModelKind : int
+	{
+		Whisper = 0,
+		SenseVoice = 1,
+	};
+	eModelKind selectedKind() const;
+	bool isSenseVoiceKind() const;
+	// 切换到不同引擎时更新文案、文件过滤器、控件可用状态
+	void applyKindUI();
+	void populateKinds();
+
 	std::vector<HWND> editorsWindows;
 	std::vector<HWND> pendingWindows;
 	void setPending( bool nowPending );
 
 	LRESULT OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
 	LRESULT OnCallbackStatus( UINT, WPARAM wParam, LPARAM, BOOL& bHandled );
+	LRESULT onKindChange( UINT, INT, HWND, BOOL& bHandled );
 
 	LRESULT OnCommand( UINT, INT nIdentifier, HWND, BOOL& bHandled )
 	{
@@ -52,6 +67,7 @@ private:
 
 	ConsoleCheckbox cbConsole;
 	CComboBox cbModelType;
+	CComboBox cbModelKind;
 	CEdit modelPath;
 	CProgressBarCtrl progressBar;
 
