@@ -56,6 +56,7 @@ public:
 		DDX_CONTROL_HANDLE( IDC_OUTPUT_FORMAT, transcribeOutFormat )
 		DDX_CONTROL_HANDLE( IDC_ENGINE, engineSelector )
 		DDX_CONTROL_HANDLE( IDC_CONCURRENCY, concurrencyEdit )
+		DDX_CONTROL_HANDLE( IDC_HYBRID, hybridCheck )
 		DDX_CONTROL_HANDLE( IDC_USE_INPUT_FOLDER, useInputFolder )
 		DDX_CONTROL_HANDLE( IDC_PATH_RESULT, transcribeOutputPath )
 		DDX_CONTROL_HANDLE( IDC_BROWSE_RESULT, transcribeOutputBrowse );
@@ -91,6 +92,7 @@ private:
 	CComboBox transcribeOutFormat;
 	CComboBox engineSelector;
 	CEdit concurrencyEdit;
+	CButton hybridCheck;
 	// 下拉框每一项对应的引擎 id，与 combobox 索引一一对应
 	std::vector<CString> engineIds;
 	void populateEngines();
@@ -109,6 +111,9 @@ private:
 	void onTranscribe();
 	void onCapture()
 	{
+		// SenseVoice 模式没有 Whisper 模型，捕获界面不可用
+		if( nullptr == appState.model )
+			return;
 		EndDialog( IDC_CAPTURE );
 	}
 
@@ -190,7 +195,12 @@ private:
 
 	// 并发数：GPU 槽固定 1 个，其余给 CPU 引擎
 	int requestedConcurrency = 1;
+	// 是否启用异构并行：GPU 引擎与 CPU 引擎同时跑，共享同一个队列
+	bool hybridParallel = false;
 	static int recommendedConcurrency( const Asr::sAsrEngineInfo& engineInfo );
+
+	// 规划工作槽：返回每个槽位应使用的引擎 id
+	std::vector<CString> planSlots( const CString& engineId, int requested, size_t pendingCount );
 
 	// 把队列里的下一个待办任务分配给空闲槽，返回分配到的槽索引，没有任务时返回 -1
 	int dispatchNextInSlot();
@@ -207,8 +217,17 @@ void workerLoop( int slotIndex );
 	void finishBatch( bool canceled );
 
 	// 启动 / 停止工作线程池
-	HRESULT startWorkers( const CString& engineId, int concurrency );
+	// slotEngines 里每一项对应一个工作线程要用的引擎 id，
+	// 异构并行时数组里会混有 GPU 引擎和 CPU 引擎
+	HRESULT startWorkers( const std::vector<CString>& slotEngines );
 	void stopWorkers();
+
+	// 线程启动参数，避免用「认领」时序来推断槽位
+	struct SlotLaunchParam
+	{
+		TranscribeDlg* dialog;
+		int slotIndex;
+	};
 
 	// 在一个工作线程里转写一个文件（线程内调用，不外抛）。
 	// engine 复用，避免每个文件重复加载模型。

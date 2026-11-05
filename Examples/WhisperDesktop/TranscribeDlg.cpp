@@ -26,6 +26,7 @@ static const LPCTSTR regValOutPath = L"\u7ED3\u679C\u8DEF\u5F84";
 static const LPCTSTR regValUseInputFolder = L"\u4F7F\u7528\u8F93\u5165\u6587\u4EF6\u5939";
 static const LPCTSTR regValEngine = L"引擎";
 static const LPCTSTR regValConcurrency = L"并发数";
+static const LPCTSTR regValHybrid = L"异构并行";
 static const std::array<LPCTSTR, 4> outputExtensions =
 {
 	L".txt", L".txt", L".srt", L".vtt"
@@ -61,6 +62,31 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 	progressBar.SetStep( 1 );
 
 	lastInputPath = appState.stringLoad( regValInput );
+
+	// 异构并行：两个引擎都在的时候才有意义
+	hybridParallel = appState.boolLoad( regValHybrid );
+	if( hybridParallel )
+		hybridCheck.SetCheck( BST_CHECKED );
+	{
+		Asr::AppContext ctx;
+		ctx.model = appState.model;
+		ctx.mediaFoundation = appState.mediaFoundation;
+		bool haveGpu = false, haveCpu = false;
+		for( const Asr::sAsrEngineInfo& e : Asr::listAvailableEngines( ctx ) )
+		{
+			if( Asr::hasFlag( e.flags, Asr::UsesGpu ) )
+				haveGpu = true;
+			if( Asr::hasFlag( e.flags, Asr::UsesCpu ) )
+				haveCpu = true;
+		}
+		const BOOL canHybrid = ( haveGpu && haveCpu ) ? TRUE : FALSE;
+		hybridCheck.EnableWindow( canHybrid );
+		if( !canHybrid )
+		{
+			hybridCheck.SetCheck( BST_UNCHECKED );
+			hybridParallel = false;
+		}
+	}
 	// 恢复上次的并发数，没有记录时留空表示「自动」
 	{
 		const uint32_t saved = appState.dwordLoad( regValConcurrency, 0 );
@@ -82,12 +108,37 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 	appState.lastScreenSave( SCREEN_TRANSCRIBE );
 	appState.setupIcon( this );
 	ATLVERIFY( CenterWindow() );
+
+	// SenseVoice 模式没有 Whisper 模型，麦克风捕获界面用不了，直接禁用入口
+	if( nullptr == appState.model )
+	{
+		CWindow captureBtn = GetDlgItem( IDC_CAPTURE );
+		if( captureBtn )
+		{
+			captureBtn.EnableWindow( FALSE );
+			captureBtn.SetWindowText( L"\u9EA6\u514B\u98CE\uFF08\u4EC5 Whisper\uFF09" );
+		}
+	}
+
 	return 0;
 }
 
 void TranscribeDlg::printModelDescription()
 {
 	CString text;
+
+	// SenseVoice 模式：没有 Whisper 模型对象，直接显示引擎与模型目录
+	if( nullptr == appState.model )
+	{
+		text = L"SenseVoice (CPU) \u6A21\u578B\u76EE\u5F55 \"";
+		LPCTSTR dir = appState.source.path;
+		dir = ::PathFindFileName( dir );
+		text += dir;
+		text += L"\"";
+		modelDesc.SetWindowText( text );
+		return;
+	}
+
 	if( S_OK == appState.model->isMultilingual() )
      text = L"\u591A\u79CD\u8BED\u8A00";
 	else
@@ -146,8 +197,10 @@ void TranscribeDlg::populateEngines()
 	if( engineIds.empty() )
 		return;
 
-	// 恢复上次的选择
-	CString saved = appState.stringLoad( regValEngine );
+	// 恢复上次的选择：优先用「加载模型」界面上选的引擎
+	CString saved = appState.engineId;
+	if( saved.IsEmpty() )
+		saved = appState.stringLoad( regValEngine );
 	int sel = -1;
 	for( size_t i = 0; i < engineIds.size(); i++ )
 	{
@@ -511,7 +564,7 @@ int TranscribeDlg::recommendedConcurrency( const Asr::sAsrEngineInfo& engineInfo
 	return ( recommended < 1 ) ? 1 : recommended;
 }
 
-HRESULT TranscribeDlg::startWorkers( const CString& engineId, int concurrency )
+HRESULT TranscribeDlg::startWorkers( const std::vector<CString>& slotEngines )
 {
 	stopWorkers();
 
@@ -522,37 +575,37 @@ HRESULT TranscribeDlg::startWorkers( const CString& engineId, int concurrency )
 		return E_UNEXPECTED;
 	}
 
-	if( concurrency < 1 )
-		concurrency = 1;
+	if( slotEngines.empty() )
+	{
+		logError( u8"没有可用的引擎槽位" );
+		return E_INVALIDARG;
+	}
 
 	slots.clear();
-	slots.resize( (size_t)concurrency );
-
-	Asr::AppContext appCtx;
-	appCtx.model = appState.model;
-	appCtx.mediaFoundation = appState.mediaFoundation;
+	slots.resize( slotEngines.size() );
 
 	for( size_t i = 0; i < slots.size(); i++ )
 	{
 		WorkerSlot& s = slots[ i ];
-		s.engineId = engineId;
-		s.gpu = Asr::isGpuEngine( engineId );
+		s.engineId = slotEngines[ i ];
+		s.gpu = Asr::isGpuEngine( s.engineId );
 		s.itemIndex = -1;
 		s.quit = false;
 		s.progressPct = 0;
+		s.threadOwnerTid = 0;
 
-		s.thread = (HANDLE)_beginthreadex( nullptr, 0, &TranscribeDlg::workerThreadProc, this, 0, nullptr );
+		// 线程参数传槽位索引，避免依赖「认领」时序
+		auto* param = new SlotLaunchParam{ this, (int)i };
+		s.thread = (HANDLE)_beginthreadex( nullptr, 0, &TranscribeDlg::workerThreadProc, param, 0, nullptr );
 		if( nullptr == s.thread )
 		{
+			delete param;
 			logError( u8"创建工作线程失败" );
-			// 先把已起的线程收掉，避免半启动状态
 			stopWorkers();
 			return E_FAIL;
 		}
 	}
 
-	// 修正槽位索引：线程启动时不知道自己是第几个槽，这里通过 thread id 无法可靠映射，
-	// 改为在 workerLoop 里用一份「槽位认领」方式分配
 	return S_OK;
 }
 
@@ -592,30 +645,19 @@ void TranscribeDlg::stopWorkers()
 
 unsigned __stdcall TranscribeDlg::workerThreadProc( void* pv )
 {
-	TranscribeDlg* self = static_cast<TranscribeDlg*>( pv );
-	self->workerLoop( -1 );
+	// 参数由 startWorkers 分配，线程自己负责释放
+	std::unique_ptr<SlotLaunchParam> param( static_cast<SlotLaunchParam*>( pv ) );
+	if( !param || nullptr == param->dialog )
+		return 0;
+	param->dialog->workerLoop( param->slotIndex );
 	return 0;
 }
 
-void TranscribeDlg::workerLoop( int )
+void TranscribeDlg::workerLoop( int mySlot )
 {
-	// 每个线程通过「认领空闲槽」拿到属于自己的槽位信息。
-	// 这样不用在线程启动时传结构体指针，避免生命周期问题。
-	int mySlot = -1;
-	{
-		CComCritSecLock<CComAutoCriticalSection> lock( batchCs );
-		for( size_t i = 0; i < slots.size(); i++ )
-		{
-			if( slots[ i ].threadOwnerTid == 0 )
-			{
-				slots[ i ].threadOwnerTid = ::GetCurrentThreadId();
-				mySlot = (int)i;
-				break;
-			}
-		}
-	}
-	if( mySlot < 0 )
+	if( mySlot < 0 || mySlot >= (int)slots.size() )
 		return;
+	slots[ mySlot ].threadOwnerTid = ::GetCurrentThreadId();
 
 	Asr::AppContext appCtx;
 	appCtx.model = appState.model;
@@ -669,13 +711,20 @@ void TranscribeDlg::workerLoop( int )
 		{
 			CComCritSecLock<CComAutoCriticalSection> lock( batchCs );
 
-			// 注意：不能再持有锁的情况下 Sleep()，否则会卡住其他工作线程
+			// 注意：不能在持有锁的情况下 Sleep()，否则会卡住其他工作线程
 			if( transcribeArgs.visualState != eVisualState::Running )
 				notRunning = true;
 			else
 			{
-				for( size_t i = 0; i < batchItems.size(); i++ )
+				// 异构模式下按「从两头向中间」的顺序取任务：
+				// GPU 槽从队头取，CPU 槽从队尾取。
+				// 这样慢的 GPU 和快的 CPU 各自认领一半，不会出现 GPU 堆积、
+				// CPU 早早空闲的情况；两边在中点会合后，先做完的继续抢剩下的。
+				const bool fromHead = slots[ mySlot ].gpu || !hybridParallel;
+				const size_t count = batchItems.size();
+				for( size_t k = 0; k < count; k++ )
 				{
+					const size_t i = fromHead ? k : ( count - 1 - k );
 					BatchItem& item = batchItems[ i ];
 					if( item.state != eBatchState::Pending )
 						continue;
@@ -857,8 +906,7 @@ void TranscribeDlg::onTranscribe()
 		return;
 	}
 
-	transcribeArgs.language = languageSelector.selectedLanguage();
-	transcribeArgs.translate = cbTranslate.checked();
+	transcribeArgs.language = languageSelector.selectedLanguage();	transcribeArgs.translate = cbTranslate.checked();
 	if( isInvalidTranslate( m_hWnd, transcribeArgs.language, transcribeArgs.translate ) )
 		return;
 
@@ -888,6 +936,8 @@ void TranscribeDlg::onTranscribe()
 		if( requestedConcurrency > 0 )
 			appState.dwordStore( regValConcurrency, (uint32_t)requestedConcurrency );
 	}
+	hybridParallel = isChecked( hybridCheck );
+	appState.boolStore( regValHybrid, hybridParallel );
 	languageSelector.saveSelection( appState );
 	cbTranslate.saveSelection( appState );
 	if( !explicitFolder.IsEmpty() )
@@ -904,8 +954,7 @@ void TranscribeDlg::onTranscribe()
 	updateQueueButtons();
 
 	// 并发数：GPU 引擎固定 1，CPU 引擎按硬件推荐值，用户可覆盖
-	int recommended = 1;
-	Asr::sAsrEngineInfo activeInfo;
+	int recommended = 1;	Asr::sAsrEngineInfo activeInfo;
 	bool haveInfo = false;
 	{
 		Asr::AppContext ctx;
@@ -934,9 +983,6 @@ void TranscribeDlg::onTranscribe()
 			const int cap = recommendedConcurrency( activeInfo );
 			if( concurrency > cap )
 			{
-				CString msg;
-				msg.Format( L"\u5E76\u53D1\u6570 %d \u8D85\u8FC7\u5F53\u524D\u786C\u4EF6\u5EFA\u8BAE\u4E0A\u9650\uff0c\u5DF2\u8C03\u6574\u4E3A %d\u3002",
-					concurrency, cap );
 				logWarning( u8"并发数超过硬件建议上限，已下调" );
 				concurrency = cap;
 			}
@@ -948,37 +994,117 @@ void TranscribeDlg::onTranscribe()
 		}
 	}
 
-	// 并发数不应该超过待办文件数：多出来的线程会白加载一遍模型（每个约 1.6 秒 / 320MB），
-	// 只会浪费时间和内存，没有任何收益。
+	// 统计待办文件数：并发数不应超过它，
+	// 多出来的线程会白加载一遍模型（每个约 1.6 秒 / 320MB），没有收益。
+	size_t pendingCount = 0;
+	for( const BatchItem& item : batchItems )
 	{
-		size_t pendingCount = 0;
-		for( const BatchItem& item : batchItems )
-		{
-			if( item.state == eBatchState::Pending )
-				pendingCount++;
-		}
-		if( pendingCount > 0 && (size_t)concurrency > pendingCount )
-			concurrency = (int)pendingCount;
-		if( concurrency < 1 )
-			concurrency = 1;
+		if( item.state == eBatchState::Pending )
+			pendingCount++;
+	}
+	if( pendingCount == 0 )
+	{
+		finishBatch( false );
+		return;
 	}
 
-	HRESULT hr = startWorkers( transcribeArgs.engineId, concurrency );
+	// 组装槽位：每个槽位绑定一个引擎。
+	// 异构模式下 GPU 槽跑 Whisper、CPU 槽跑 SenseVoice，共享同一个任务队列。
+	std::vector<CString> slotEngines = planSlots( transcribeArgs.engineId, concurrency, pendingCount );
+
+	HRESULT hr = startWorkers( slotEngines );
 	if( FAILED( hr ) )
 	{
-		transcribeError( L"\u65E0\u6CD5\u521B\u5EFA\u5DE5\u4F5C\u7EBF\u7A0B", hr );
+		transcribeError( L"无法创建工作线程", hr );
 		finishBatch( true );
 		return;
 	}
+
 	// 运行期间每 500ms 刷新一次进度显示
 	SetTimer( 1, 500 );
 
 	// 把实际使用的并发数写回输入框，让用户看到「自动」到底算出了多少
 	{
 		CString tmp;
-		tmp.Format( L"%d", concurrency );
+		tmp.Format( L"%d", (int)slotEngines.size() );
 		concurrencyEdit.SetWindowText( tmp );
 	}
+}
+
+// 规划工作槽。
+//
+// 单引擎模式：所有槽用同一个引擎，数量按硬件推荐值，且不超过待办文件数。
+// 异构模式：GPU 引擎固定占 1 个槽（同一块卡并发只会互相抢带宽），
+//          其余槽位留给 CPU 引擎。两边共享同一个队列，谁空闲谁取下一个文件。
+std::vector<CString> TranscribeDlg::planSlots( const CString& engineId, int requested, size_t pendingCount )
+{
+	std::vector<CString> result;
+
+	Asr::AppContext ctx;
+	ctx.model = appState.model;
+	ctx.mediaFoundation = appState.mediaFoundation;
+
+	const std::vector<Asr::sAsrEngineInfo> engines = Asr::listAvailableEngines( ctx );
+
+	Asr::sAsrEngineInfo chosen;
+	bool haveChosen = false;
+	for( const Asr::sAsrEngineInfo& e : engines )
+	{
+		if( 0 == e.id.CompareNoCase( engineId ) )
+		{
+			chosen = e;
+			haveChosen = true;
+			break;
+		}
+	}
+
+	// 找出可用的 GPU 引擎与 CPU 引擎（用于异构）
+	const Asr::sAsrEngineInfo* gpuInfo = nullptr;
+	const Asr::sAsrEngineInfo* cpuInfo = nullptr;
+	for( const Asr::sAsrEngineInfo& e : engines )
+	{
+		if( Asr::hasFlag( e.flags, Asr::UsesGpu ) && nullptr == gpuInfo )
+			gpuInfo = &e;
+		else if( Asr::hasFlag( e.flags, Asr::UsesCpu ) && nullptr == cpuInfo )
+			cpuInfo = &e;
+	}
+
+	// 勾选了异构并行、且两类引擎都存在时才走异构
+	const bool wantHybrid = hybridParallel && nullptr != gpuInfo && nullptr != cpuInfo;
+
+	if( wantHybrid )
+	{
+		// CPU 槽数量：用户指定值，否则按 CPU 引擎的硬件推荐值
+		int cpuSlots = ( requested > 0 ) ? requested : recommendedConcurrency( *cpuInfo );
+		if ( cpuSlots < 1 )
+			cpuSlots = 1;
+
+		// 注意顺序：CPU 槽在前、GPU 槽在后。
+		// 后面会按待办文件数截断，把 CPU 放前面可以保证「文件少时优先用快的 CPU 引擎」——
+		// SenseVoice 是非自回归模型，单文件比 Whisper 快一个数量级。
+		for( int i = 0; i < cpuSlots; i++ )
+			result.push_back( cpuInfo->id );
+		result.push_back( gpuInfo->id );
+	}
+	else
+	{
+		int count = ( requested > 0 ) ? requested : ( haveChosen ? recommendedConcurrency( chosen ) : 1 );
+		if( count < 1 )
+			count = 1;
+		// GPU 引擎不支持多槽
+		if( haveChosen && Asr::hasFlag( chosen.flags, Asr::UsesGpu ) )
+			count = 1;
+		for( int i = 0; i < count; i++ )
+			result.push_back( haveChosen ? chosen.id : engineId );
+	}
+
+	// 槽位数不超过待办文件数，避免空转线程白加载一遍模型
+	if( result.size() > pendingCount )
+		result.resize( pendingCount );
+	if( result.empty() )
+		result.push_back( engineId );
+
+	return result;
 }
 
 static void printTime( CString& rdi, int64_t ticks )
