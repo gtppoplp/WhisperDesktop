@@ -219,6 +219,7 @@ void workerLoop( int slotIndex );
 	CString formatStatus( eBatchState state, HRESULT hr );
 	void refreshQueueDisplay();
 	void updateQueueButtons();
+	void refreshOutputControls();
 	bool prepareBatchItems( const CString& explicitFolder );
 	bool ensureOutputFolder( CString& folder );
 	CString composeOutputPath( const CString& input, const CString& explicitFolder ) const;

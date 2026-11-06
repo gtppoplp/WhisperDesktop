@@ -285,13 +285,19 @@ void TranscribeDlg::saveEngineSelection()
 // CBN_SELCHANGE notification for IDC_OUTPUT_FORMAT combobox
 LRESULT TranscribeDlg::onOutFormatChange( UINT, INT, HWND, BOOL& bHandled )
 {
-	BOOL enabled = transcribeOutFormat.GetCurSel() != 0;
+	refreshOutputControls();
+	return 0;
+}
+
+// 输出区的三件套联动：格式为「不输出」时整区置灰；
+// 勾选「保存到源文件所在目录」时路径框与浏览按钮置灰。
+void TranscribeDlg::refreshOutputControls()
+{
+	const BOOL enabled = transcribeOutFormat.GetCurSel() != 0;
 	useInputFolder.EnableWindow( enabled );
 	const BOOL allowFolder = ( enabled && !isChecked( useInputFolder ) ) ? TRUE : FALSE;
 	transcribeOutputPath.EnableWindow( allowFolder );
 	transcribeOutputBrowse.EnableWindow( allowFolder );
-
-	return 0;
 }
 
 void TranscribeDlg::onAddFiles()
@@ -439,6 +445,11 @@ void TranscribeDlg::updateQueueButtons()
 		removeBtn.EnableWindow( canEdit && selection > 0 );
 	if( clearBtn )
 		clearBtn.EnableWindow( canEdit && hasItems );
+
+	// 主操作按钮：没有待转录的文件时置灰，避免点了才弹提示
+	CWindow goBtn = GetDlgItem( IDC_TRANSCRIBE );
+	if( goBtn && canEdit )
+		goBtn.EnableWindow( hasItems );
 }
 
 bool TranscribeDlg::ensureOutputFolder( CString& folder )
@@ -1004,9 +1015,7 @@ void TranscribeDlg::finishBatch( bool canceled )
 
 void TranscribeDlg::onInputFolderCheck()
 {
-	const BOOL allowFolder = ( transcribeOutFormat.GetCurSel() != 0 && !isChecked( useInputFolder ) ) ? TRUE : FALSE;
-	transcribeOutputPath.EnableWindow( allowFolder );
-	transcribeOutputBrowse.EnableWindow( allowFolder );
+	refreshOutputControls();
 }
 
 void TranscribeDlg::onBrowseOutput()
@@ -1084,10 +1093,10 @@ void TranscribeDlg::onTranscribe()
 
 	setPending( true );
 	transcribeArgs.visualState = eVisualState::Running;
-  transcribeButton.SetWindowText( L"\u505C\u6B62" );
+	transcribeButton.SetWindowText( L"\u505C\u6B62\u8F6C\u5F55" );
 	updateQueueButtons();
 
-	// 并发数：GPU 引擎固定 1，CPU 引擎按硬件推荐值，用户可覆盖
+	// 并发数：按引擎能力与硬件推算（CPU 看核数/内存，GPU 看显存），用户可覆盖
 	int recommended = 1;	Asr::sAsrEngineInfo activeInfo;
 	bool haveInfo = false;
 	{
