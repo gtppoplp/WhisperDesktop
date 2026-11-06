@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -65,14 +65,20 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ManifestFile>WhisperDesktop.manifest</ManifestFile>
+      <AdditionalDependencies>dxgi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
 copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
 copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime_providers_shared.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
 if exist "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" "$(OutDir)" &gt;nul 2&gt;&amp;1
-if not exist "$(OutDir)models\sense-voice" mkdir "$(OutDir)models\sense-voice"</Command>
+if not exist "$(OutDir)models\sense-voice" mkdir "$(OutDir)models\sense-voice"
+rem CUDA 版运行时（onnxruntime_providers_cuda.dll / cudnn 等）存在时一并复制，供 GPU 推理
+if exist "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime_providers_cuda.dll" copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\*.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1</Command>
     </PostBuildEvent>
+    <ResourceCompile>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -96,6 +102,7 @@ if not exist "$(OutDir)models\sense-voice" mkdir "$(OutDir)models\sense-voice"</
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ManifestFile>WhisperDesktop.manifest</ManifestFile>
+      <AdditionalDependencies>dxgi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
     <PostBuildEvent>
@@ -103,8 +110,13 @@ if not exist "$(OutDir)models\sense-voice" mkdir "$(OutDir)models\sense-voice"</
 copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
 copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime_providers_shared.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
 if exist "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" "$(OutDir)" &gt;nul 2&gt;&amp;1
-if not exist "$(OutDir)models\sense-voice" mkdir "$(OutDir)models\sense-voice"</Command>
+if not exist "$(OutDir)models\sense-voice" mkdir "$(OutDir)models\sense-voice"
+rem CUDA 版运行时（onnxruntime_providers_cuda.dll / cudnn 等）存在时一并复制，供 GPU 推理
+if exist "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime_providers_cuda.dll" copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\*.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1</Command>
     </PostBuildEvent>
+    <ResourceCompile>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="CircleIndicator.h" />

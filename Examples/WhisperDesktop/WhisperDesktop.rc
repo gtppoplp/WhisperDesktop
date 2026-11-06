@@ -1,5 +1,11 @@
 // Microsoft Visual C++ generated resource script.
 //
+// 本文件以 UTF-8 保存，包含中文界面文案。RC 默认按系统 ANSI 代码页（中文 Windows 上是 936/GBK）
+// 解析字符串字面量，UTF-8 的多字节序列会被误读——尤其当某个双字节字符的尾字节恰好是 0x5C（反斜杠）
+// 或 0x22（引号）时，字符串会被提前截断，报 RC2104 "undefined keyword or key name"。
+// 这里显式声明代码页。RC 支持 code_page(65001)，MSVC 从 VS2019 起就认可。
+#pragma code_page(65001)
+
 #include "resource.h"
 
 #define APSTUDIO_READONLY_SYMBOLS
@@ -45,20 +51,23 @@ FONT 11, "Calibri", 400, 0, 0x0
 BEGIN
     LTEXT           "Please provide a Whisper model in GGML binary format.",IDC_STATIC,7,8,203,8
     CONTROL         "Debug Console",IDC_CONSOLE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,237,7,66,10
-    CONTROL         "You can download these binary files from <a href=""https://huggingface.co/ggerganov/whisper.cpp/tree/main"">Hugging Face</a>, or <a href=""https://github.com/ggerganov/whisper.cpp/tree/master/models"">generate</a> from OpenAI��s Python models.",IDC_HYPERLINKS,
+    CONTROL         "You can download these binary files from <a href=""https://huggingface.co/ggerganov/whisper.cpp/tree/main"">Hugging Face</a>, or <a href=""https://github.com/ggerganov/whisper.cpp/tree/master/models"">generate</a> from OpenAI¡¯s Python models.",IDC_HYPERLINKS,
                     "SysLink",WS_TABSTOP,7,22,296,17
     LTEXT           "Model Path",IDC_STATIC,7,45,39,8
     EDITTEXT        IDC_PATH,7,60,280,12,ES_AUTOHSCROLL
     PUSHBUTTON      "...",IDC_BROWSE,288,60,15,12
     LTEXT           "Engine:",IDC_STATIC,7,81,30,8
     COMBOBOX        IDC_MODEL_KIND,41,80,76,47,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "Implementation:",IDC_STATIC,122,81,62,8
+    LTEXT           "Implementation:",IDC_MODEL_TYPE_LBL,122,81,62,8
     COMBOBOX        IDC_MODEL_TYPE,186,80,89,47,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "Loading model, please wait��",IDC_PENDING_TEXT,7,103,96,8,NOT WS_VISIBLE | WS_TABSTOP
+    LTEXT           "Device:",IDC_SENSE_DEVICE_LBL,122,81,30,8,NOT WS_VISIBLE
+    COMBOBOX        IDC_SENSE_DEVICE,154,80,85,40,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "",IDC_SENSE_DEVICE_TIP,7,93,256,22,NOT WS_VISIBLE
+    LTEXT           "Loading model, please wait¡­",IDC_PENDING_TEXT,7,103,96,8,NOT WS_VISIBLE | WS_TABSTOP
     CONTROL         "",IDC_PROGRESS,"msctls_progress32",PBS_SMOOTH | NOT WS_VISIBLE | WS_BORDER,7,117,296,6
     DEFPUSHBUTTON   "OK",IDOK,199,139,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,253,139,50,14
-    PUSHBUTTON      "advanced��",IDC_MODEL_ADV,7,93,55,11
+    PUSHBUTTON      "advanced¡­",IDC_MODEL_ADV,7,93,55,11
 END
 
 IDD_TRANSCRIBE_DIALOG DIALOGEX 0, 0, 310, 208
@@ -89,7 +98,7 @@ BEGIN
     LTEXT           "Output folder:",IDC_STATIC,15,140,56,8
     EDITTEXT        IDC_PATH_RESULT,14,150,266,12,ES_AUTOHSCROLL | WS_DISABLED
     PUSHBUTTON      "...",IDC_BROWSE_RESULT,281,150,15,12,WS_DISABLED
-    LTEXT           "Transcribing queued files, please wait��",IDC_PENDING_TEXT,15,166,155,8,NOT WS_VISIBLE | WS_TABSTOP
+    LTEXT           "Transcribing queued files, please wait¡­",IDC_PENDING_TEXT,15,166,155,8,NOT WS_VISIBLE | WS_TABSTOP
     PUSHBUTTON      "Transcribe",IDC_TRANSCRIBE,246,162,50,14
     CONTROL         "",IDC_TRANSCRIBE_PROGRESS,"msctls_progress32",PBS_SMOOTH | NOT WS_VISIBLE | WS_BORDER,14,178,281,6
     PUSHBUTTON      "Back",IDC_BACK,7,188,50,14
@@ -272,102 +281,110 @@ LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
 
 IDD_OPEN_MODEL DIALOGEX 0, 0, 310, 160
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
-CAPTION "���� Whisper ģ��"
+CAPTION "加载 Whisper 模型"
 FONT 9, "Microsoft YaHei UI", 400, 0, 0x0
 BEGIN
-    LTEXT           "���ṩ GGML �����Ƹ�ʽ�� Whisper ģ�͡�",IDC_STATIC,7,8,203,8
-    CONTROL         "���Կ���̨",IDC_CONSOLE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,237,7,66,10
-    CONTROL         "�����Դ� <a href=""https://huggingface.co/ggerganov/whisper.cpp/tree/main"">Hugging Face</a> ������Щ�������ļ������ OpenAI �� Python ģ��<a href=""https://github.com/ggerganov/whisper.cpp/tree/master/models"">����</a>��",IDC_HYPERLINKS,
+    LTEXT           "请提供 GGML 二进制格式的 Whisper 模型。",IDC_STATIC,7,8,203,8
+    CONTROL         "调试控制台",IDC_CONSOLE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,237,7,66,10
+    CONTROL         "您可以从 <a href=""https://huggingface.co/ggerganov/whisper.cpp/tree/main"">Hugging Face</a> 下载这些二进制文件，或从 OpenAI 的 Python 模型<a href=""https://github.com/ggerganov/whisper.cpp/tree/master/models"">生成</a>。",IDC_HYPERLINKS,
                     "SysLink",WS_TABSTOP,7,22,296,17
-    LTEXT           "ģ��·��",IDC_STATIC,7,45,39,8
+    LTEXT           "模型路径",IDC_STATIC,7,45,39,8
     EDITTEXT        IDC_PATH,7,60,280,12,ES_AUTOHSCROLL
     PUSHBUTTON      "...",IDC_BROWSE,288,60,15,12
-    LTEXT           "�������ͣ�",IDC_STATIC,7,81,42,8
+    LTEXT           "引擎类型：",IDC_STATIC,7,81,42,8
     COMBOBOX        IDC_MODEL_KIND,52,80,68,47,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "ģ��ʵ�֣�",IDC_STATIC,125,81,45,8
+    LTEXT           "模型实现：",IDC_MODEL_TYPE_LBL,125,81,45,8
     COMBOBOX        IDC_MODEL_TYPE,173,80,102,47,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "���ڼ���ģ�ͣ����Ժ�",IDC_PENDING_TEXT,7,103,96,8,NOT WS_VISIBLE | WS_TABSTOP
+    LTEXT           "设备：",IDC_SENSE_DEVICE_LBL,125,81,24,8,NOT WS_VISIBLE
+    COMBOBOX        IDC_SENSE_DEVICE,151,80,88,40,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "",IDC_SENSE_DEVICE_TIP,7,93,256,22,NOT WS_VISIBLE
+    LTEXT           "正在加载模型，请稍候…",IDC_PENDING_TEXT,7,103,96,8,NOT WS_VISIBLE | WS_TABSTOP
     CONTROL         "",IDC_PROGRESS,"msctls_progress32",PBS_SMOOTH | NOT WS_VISIBLE | WS_BORDER,7,117,296,6
-    DEFPUSHBUTTON   "ȷ��",IDOK,199,139,50,14
-    PUSHBUTTON      "ȡ��",IDCANCEL,253,139,50,14
-    PUSHBUTTON      "�߼���",IDC_MODEL_ADV,7,93,55,11
+    DEFPUSHBUTTON   "确定",IDOK,199,139,50,14
+    PUSHBUTTON      "取消",IDCANCEL,253,139,50,14
+    PUSHBUTTON      "高级…",IDC_MODEL_ADV,7,93,55,11
 END
 
 IDD_TRANSCRIBE_DIALOG DIALOGEX 0, 0, 310, 208
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "ת¼��Ƶ�ļ�"
+CAPTION "转录音频文件"
 FONT 9, "Microsoft YaHei UI", 400, 0, 0x0
 BEGIN
     LTEXT           "",IDC_MODEL_DESC,7,7,227,8
-    CONTROL         "���Կ���̨",IDC_CONSOLE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,237,7,66,10
-    LTEXT           "���ԣ�",IDC_STATIC,7,21,34,8
+    CONTROL         "调试控制台",IDC_CONSOLE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,237,7,66,10
+    LTEXT           "语言：",IDC_STATIC,7,21,34,8
     COMBOBOX        IDC_LANGUAGE,49,20,76,137,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL         "����",IDC_TRANSLATE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,136,20,51,10
-    GROUPBOX        "ת¼�ļ�",IDC_STATIC,7,38,296,120
-    LTEXT           "�ļ���",IDC_STATIC,15,50,32,8
+    CONTROL         "翻译",IDC_TRANSLATE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,136,20,51,10
+    LTEXT           "引擎：",IDC_STATIC,196,21,26,8
+    COMBOBOX        IDC_ENGINE,225,20,78,137,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    GROUPBOX        "转录文件",IDC_STATIC,7,38,296,120
+    LTEXT           "文件：",IDC_STATIC,15,50,32,8
     LISTBOX         IDC_FILE_LIST,14,60,226,60,LBS_EXTENDEDSEL | WS_VSCROLL | WS_BORDER | WS_TABSTOP
-    PUSHBUTTON      "����...",IDC_ADD_FILES,246,60,45,12
-    PUSHBUTTON      "�Ƴ�",IDC_REMOVE_FILE,246,76,45,12
-    PUSHBUTTON      "���",IDC_CLEAR_FILES,246,92,45,12
-    LTEXT           "�����ʽ��",IDC_STATIC,15,126,53,8
+    PUSHBUTTON      "添加...",IDC_ADD_FILES,246,60,45,12
+    PUSHBUTTON      "移除",IDC_REMOVE_FILE,246,76,45,12
+    PUSHBUTTON      "清空",IDC_CLEAR_FILES,246,92,45,12
+    LTEXT           "并发",IDC_CONCURRENCY_LBL,246,107,27,8
+    EDITTEXT        IDC_CONCURRENCY,276,105,15,12,ES_NUMBER | ES_CENTER
+    CONTROL         "GPU+CPU",IDC_HYBRID,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,246,118,45,10
+    LTEXT           "输出格式：",IDC_STATIC,15,126,53,8
     COMBOBOX        IDC_OUTPUT_FORMAT,74,124,86,137,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL         "��������浽�����ļ���",IDC_USE_INPUT_FOLDER,
+    CONTROL         "将结果保存到输入文件夹",IDC_USE_INPUT_FOLDER,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,168,124,133,10
-    LTEXT           "����ļ��У�",IDC_STATIC,15,140,56,8
+    LTEXT           "输出文件夹：",IDC_STATIC,15,140,56,8
     EDITTEXT        IDC_PATH_RESULT,14,150,266,12,ES_AUTOHSCROLL | WS_DISABLED
     PUSHBUTTON      "...",IDC_BROWSE_RESULT,281,150,15,12,WS_DISABLED
-    LTEXT           "����ת¼�����е��ļ������Ժ�",IDC_PENDING_TEXT,15,166,155,8,NOT WS_VISIBLE | WS_TABSTOP
-    PUSHBUTTON      "ת¼",IDC_TRANSCRIBE,246,162,50,14
+    LTEXT           "正在转录队列中的文件，请稍候…",IDC_PENDING_TEXT,15,166,155,8,NOT WS_VISIBLE | WS_TABSTOP
+    PUSHBUTTON      "转录",IDC_TRANSCRIBE,246,162,50,14
     CONTROL         "",IDC_TRANSCRIBE_PROGRESS,"msctls_progress32",PBS_SMOOTH | NOT WS_VISIBLE | WS_BORDER,14,178,281,6
-    PUSHBUTTON      "����",IDC_BACK,7,188,50,14
-    PUSHBUTTON      "��Ƶ����",IDC_CAPTURE,121,188,72,14
-    PUSHBUTTON      "�ر�",IDCANCEL,253,188,50,14
+    PUSHBUTTON      "返回",IDC_BACK,7,188,50,14
+    PUSHBUTTON      "音频捕获",IDC_CAPTURE,121,188,72,14
+    PUSHBUTTON      "关闭",IDCANCEL,253,188,50,14
 END
 
 IDD_CAPTURE_DIALOG DIALOGEX 0, 0, 310, 160
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "������Ƶ"
+CAPTION "捕获音频"
 FONT 9, "Microsoft YaHei UI", 400, 0, 0x0
 BEGIN
     LTEXT           "",IDC_MODEL_DESC,7,7,227,8
-    CONTROL         "���Կ���̨",IDC_CONSOLE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,237,7,66,10
-    LTEXT           "���ԣ�",-1,7,21,34,8
+    CONTROL         "调试控制台",IDC_CONSOLE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,237,7,66,10
+    LTEXT           "语言：",-1,7,21,34,8
     COMBOBOX        IDC_LANGUAGE,49,20,76,137,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL         "����",IDC_TRANSLATE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,136,20,51,10
-    LTEXT           "�����豸��",-1,7,39,53,8
+    CONTROL         "翻译",IDC_TRANSLATE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,136,20,51,10
+    LTEXT           "捕获设备：",-1,7,39,53,8
     COMBOBOX        IDC_DEVICE,67,38,194,137,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    PUSHBUTTON      "ˢ��",IDC_DEV_REFRESH,265,38,38,11
-    CONTROL         "���浽�ı��ļ�",IDC_SAVE_TEXT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,65,67,10
-    CONTROL         "׷�ӵ����ļ�",IDC_SAVE_APPEND,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,88,65,78,10
-    CONTROL         "����ʱ���",IDC_SAVE_TIMESTAMPS,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,176,65,81,10
+    PUSHBUTTON      "刷新",IDC_DEV_REFRESH,265,38,38,11
+    CONTROL         "保存到文本文件",IDC_SAVE_TEXT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,65,67,10
+    CONTROL         "追加到该文件",IDC_SAVE_APPEND,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,88,65,78,10
+    CONTROL         "包含时间戳",IDC_SAVE_TIMESTAMPS,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,176,65,81,10
     EDITTEXT        IDC_PATH_RESULT,7,79,279,12,ES_AUTOHSCROLL
     PUSHBUTTON      "...",IDC_BROWSE_RESULT,289,79,15,12
     LTEXT           "",IDC_VOICE_ACTIVITY,22,100,13,10,NOT WS_VISIBLE | NOT WS_GROUP
-    LTEXT           "�����",IDC_VOICE_ACTIVITY_LBL,38,102,43,8,NOT WS_VISIBLE
+    LTEXT           "语音活动",IDC_VOICE_ACTIVITY_LBL,38,102,43,8,NOT WS_VISIBLE
     LTEXT           "",IDC_TRANS_STATUS,91,100,13,10,NOT WS_VISIBLE | NOT WS_GROUP
-    LTEXT           "����ת¼",IDC_TRANS_LBL,107,102,40,8,NOT WS_VISIBLE
+    LTEXT           "正在转录",IDC_TRANS_LBL,107,102,40,8,NOT WS_VISIBLE
     LTEXT           "",IDC_STALL_STATUS,162,100,13,10,NOT WS_VISIBLE | NOT WS_GROUP
-    LTEXT           "��ֹͣ",IDC_STALL_LBL,178,102,23,8,NOT WS_VISIBLE
-    PUSHBUTTON      "����",IDC_RUN_CAPTURE,253,99,50,14
+    LTEXT           "已停止",IDC_STALL_LBL,178,102,23,8,NOT WS_VISIBLE
+    PUSHBUTTON      "捕获",IDC_RUN_CAPTURE,253,99,50,14
     CONTROL         "",IDC_TRANSCRIBE_PROGRESS,"msctls_progress32",PBS_SMOOTH | PBS_MARQUEE | NOT WS_VISIBLE | WS_BORDER,7,121,296,6
-    PUSHBUTTON      "����",IDC_BACK,7,139,50,14
-    PUSHBUTTON      "ת¼�ļ�",IDC_TRANSCRIBE,121,139,72,14
-    PUSHBUTTON      "�ر�",IDCANCEL,253,139,50,14
+    PUSHBUTTON      "返回",IDC_BACK,7,139,50,14
+    PUSHBUTTON      "转录文件",IDC_TRANSCRIBE,121,139,72,14
+    PUSHBUTTON      "关闭",IDCANCEL,253,139,50,14
 END
 
 IDD_MODEL_ADV DIALOGEX 0, 0, 215, 81
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
-CAPTION "�߼� GPU ����"
+CAPTION "高级 GPU 设置"
 FONT 9, "Microsoft YaHei UI", 400, 0, 0x0
 BEGIN
-    LTEXT           "������ɫ����",IDC_STATIC,9,8,62,8
+    LTEXT           "计算着色器：",IDC_STATIC,9,8,62,8
     COMBOBOX        IDC_WAVE,103,7,105,30,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "���ܾ���˷���",IDC_STATIC,9,25,88,8
+    LTEXT           "重塑矩阵乘法：",IDC_STATIC,9,25,88,8
     COMBOBOX        IDC_RESHAPED_MAT_MUL,103,24,105,30,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "ͼ����������",IDC_STATIC,9,43,60,8
+    LTEXT           "图形适配器：",IDC_STATIC,9,43,60,8
     COMBOBOX        IDC_GPU,74,42,134,30,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    DEFPUSHBUTTON   "ȷ��",IDOK,104,60,50,14
-    PUSHBUTTON      "ȡ��",IDCANCEL,158,60,50,14
+    DEFPUSHBUTTON   "确定",IDOK,104,60,50,14
+    PUSHBUTTON      "取消",IDCANCEL,158,60,50,14
 END
 
 #endif    // Chinese (Simplified, PRC) resources

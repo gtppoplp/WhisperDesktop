@@ -16,6 +16,7 @@ namespace
 	const LPCTSTR regValGpuFlags = L"gpuFlags";
 	const LPCTSTR regValEngine = L"engine";
 	const LPCTSTR regValSenseVoiceDir = L"senseVoiceDir";
+	const LPCTSTR regValSenseVoiceDevice = L"senseVoiceDevice";
 
 	static HRESULT readString( CRegKey& k, LPCTSTR name, CString& rdi )
 	{
@@ -108,6 +109,9 @@ HRESULT AppState::findModelSource()
 	// 先确定用哪个引擎。SenseVoice 不需要 .bin 模型。
 	readString( registryKey, regValEngine, engineId );
 	readString( registryKey, regValSenseVoiceDir, senseVoiceDir );
+	readString( registryKey, regValSenseVoiceDevice, senseVoiceDevice );
+	if( senseVoiceDevice.IsEmpty() )
+		senseVoiceDevice = L"cpu";
 
 	if( 0 == engineId.CompareNoCase( L"sherpa-sensevoice" ) )
 	{
@@ -150,6 +154,7 @@ HRESULT AppState::saveModelSource()
 		registryKey.DeleteValue( regValSenseVoiceDir );
 	else
 		registryKey.SetStringValue( regValSenseVoiceDir, senseVoiceDir );
+	registryKey.SetStringValue( regValSenseVoiceDevice, senseVoiceDevice.IsEmpty() ? L"cpu" : (LPCTSTR)senseVoiceDevice );
 
 	// SenseVoice 模式下没有 Whisper 模型路径可存
 	if( 0 == engineId.CompareNoCase( L"sherpa-sensevoice" ) )

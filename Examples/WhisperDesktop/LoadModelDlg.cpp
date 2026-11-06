@@ -143,23 +143,105 @@ LRESULT LoadModelDlg::OnBrowse( UINT, INT, HWND, BOOL& bHandled )
 
 void LoadModelDlg::populateKinds()
 {
-	cbModelKind.ResetContent();
-	// 顺序必须与 eModelKind 一致
-	cbModelKind.AddString( L"Whisper (GPU)" );
-	cbModelKind.AddString( L"SenseVoice (CPU)" );
+	// 不用 CComboBox 成员的 ResetContent：DDX 偶发绑不到时会直接断言。
+	HWND h = ::GetDlgItem( m_hWnd, IDC_MODEL_KIND );
+	if( !::IsWindow( h ) )
+		return;
+	if( cbModelKind.m_hWnd != h )
+	{
+		if( ::IsWindow( cbModelKind.m_hWnd ) )
+			cbModelKind.Detach();
+		cbModelKind.Attach( h );
+	}
 
-	if( 0 == appState.engineId.CompareNoCase( L"sherpa-sensevoice" ) )
-		cbModelKind.SetCurSel( (int)eModelKind::SenseVoice );
-	else
-		cbModelKind.SetCurSel( (int)eModelKind::Whisper );
+	::SendMessageW( h, CB_RESETCONTENT, 0, 0 );
+	// 顺序必须与 eModelKind 一致；文案不再写死 CPU/GPU，设备由「设备」下拉框决定
+	::SendMessageW( h, CB_ADDSTRING, 0, (LPARAM)L"Whisper" );
+	::SendMessageW( h, CB_ADDSTRING, 0, (LPARAM)L"SenseVoice" );
+
+	const int sel = 0 == appState.engineId.CompareNoCase( L"sherpa-sensevoice" )
+		? (int)eModelKind::SenseVoice
+		: (int)eModelKind::Whisper;
+	::SendMessageW( h, CB_SETCURSEL, sel, 0 );
+}
+
+HWND LoadModelDlg::deviceCombo() const
+{
+	return ::GetDlgItem( m_hWnd, IDC_SENSE_DEVICE );
+}
+
+// 设备下拉框：0 = CPU（默认），1 = GPU。
+void LoadModelDlg::populateDevices()
+{
+	HWND h = deviceCombo();
+	if( !::IsWindow( h ) )
+		return;
+
+	::SendMessageW( h, CB_RESETCONTENT, 0, 0 );
+	::SendMessageW( h, CB_ADDSTRING, 0, (LPARAM)L"CPU" );
+	::SendMessageW( h, CB_ADDSTRING, 0, (LPARAM)L"GPU (CUDA)" );
+	const int sel = 0 == appState.senseVoiceDevice.CompareNoCase( L"gpu" ) ? 1 : 0;
+	::SendMessageW( h, CB_SETCURSEL, sel, 0 );
+}
+
+// 在「GPU (CUDA)」后面标注当前是否真的可用，避免用户选了 GPU 却悄悄跑 CPU。
+// 不可用时也照样允许选 —— 引擎会回退到 CPU，并在结果里说明原因。
+// 同时把具体缺哪个 DLL 写进「模型路径」下方的小字提示，省得用户猜。
+void LoadModelDlg::refreshGpuHint()
+{
+	HWND h = deviceCombo();
+	if( !::IsWindow( h ) )
+		return;
+
+	CString reason;
+	const bool ok = Asr::SenseVoiceEngine::cudaAvailable( reason );
+	::SendMessageW( h, CB_DELETESTRING, 1, 0 );
+	::SendMessageW( h, CB_INSERTSTRING, 1, (LPARAM)( ok ? L"GPU (CUDA)" : L"GPU (CUDA，不可用)" ) );
+	::SendMessageW( h, CB_SETCURSEL, 1, 0 );
+
+	HWND tip = ::GetDlgItem( m_hWnd, IDC_SENSE_DEVICE_TIP );
+	if( ::IsWindow( tip ) )
+	{
+		CString text;
+		if( ok )
+			text = L"CUDA 可用，SenseVoice 将在 GPU 上推理。";
+		else
+		{
+			text = L"CUDA 不可用：";
+			text += reason;
+			text += L" 现在选 GPU 会自动回退到 CPU。";
+		}
+		::SetWindowTextW( tip, text );
+	}
+}
+
+bool LoadModelDlg::deviceIsGpu() const
+{
+	HWND h = deviceCombo();
+	if( !::IsWindow( h ) )
+		return 0 == appState.senseVoiceDevice.CompareNoCase( L"gpu" );
+	const int sel = (int)::SendMessageW( h, CB_GETCURSEL, 0, 0 );
+	if( sel < 0 )
+		return 0 == appState.senseVoiceDevice.CompareNoCase( L"gpu" );
+	return 1 == sel;
+}
+
+LRESULT LoadModelDlg::onDeviceChange( UINT, INT, HWND, BOOL& bHandled )
+{
+	bHandled = TRUE;
+	if( isSenseVoiceKind() && deviceIsGpu() )
+		refreshGpuHint();
+	return 0;
 }
 
 LoadModelDlg::eModelKind LoadModelDlg::selectedKind() const
 {
-	const int sel = cbModelKind.GetCurSel();
+	const int sel = ::IsWindow( cbModelKind.m_hWnd ) ? cbModelKind.GetCurSel() : -1;
 	if( sel == (int)eModelKind::SenseVoice )
 		return eModelKind::SenseVoice;
-	return eModelKind::Whisper;
+	if( sel == (int)eModelKind::Whisper )
+		return eModelKind::Whisper;
+	return 0 == appState.engineId.CompareNoCase( L"sherpa-sensevoice" ) ? eModelKind::SenseVoice : eModelKind::Whisper;
 }
 
 bool LoadModelDlg::isSenseVoiceKind() const
@@ -167,14 +249,40 @@ bool LoadModelDlg::isSenseVoiceKind() const
 	return selectedKind() == eModelKind::SenseVoice;
 }
 
-// 根据当前引擎类型切换界面：文案、路径框内容、以及「模型实现」是否可用
 void LoadModelDlg::applyKindUI()
 {
 	const bool sense = isSenseVoiceKind();
 
-	// Whisper 专属的「模型实现」下拉框与「高级」按钮，在 SenseVoice 模式下没有意义
-	cbModelType.EnableWindow( !sense );
-	::EnableWindow( GetDlgItem( IDC_MODEL_ADV ), !sense );
+	// Whisper 专属的「模型实现」下拉框与「高级」按钮，在 SenseVoice 模式下没有意义；
+	// 反过来「设备」下拉框只对 SenseVoice 有意义。全部走 GetDlgItem，避免 CWindow 断言。
+	HWND hType = ::GetDlgItem( m_hWnd, IDC_MODEL_TYPE );
+	HWND hAdv = ::GetDlgItem( m_hWnd, IDC_MODEL_ADV );
+	HWND hTypeLbl = ::GetDlgItem( m_hWnd, IDC_MODEL_TYPE_LBL );
+	HWND hDevLbl = ::GetDlgItem( m_hWnd, IDC_SENSE_DEVICE_LBL );
+	HWND hDev = deviceCombo();
+	HWND hTip = ::GetDlgItem( m_hWnd, IDC_SENSE_DEVICE_TIP );
+
+	if( ::IsWindow( hType ) )
+		::EnableWindow( hType, !sense );
+	if( ::IsWindow( hAdv ) )
+		::EnableWindow( hAdv, !sense );
+	if( ::IsWindow( hTypeLbl ) )
+		::ShowWindow( hTypeLbl, sense ? SW_HIDE : SW_SHOW );
+	if( ::IsWindow( hType ) )
+		::ShowWindow( hType, sense ? SW_HIDE : SW_SHOW );
+	if( ::IsWindow( hDevLbl ) )
+		::ShowWindow( hDevLbl, sense ? SW_SHOW : SW_HIDE );
+	if( ::IsWindow( hDev ) )
+		::ShowWindow( hDev, sense ? SW_SHOW : SW_HIDE );
+	if( ::IsWindow( hTip ) )
+		::ShowWindow( hTip, sense ? SW_SHOW : SW_HIDE );
+
+	if( sense )
+	{
+		populateDevices();
+		if( deviceIsGpu() )
+			refreshGpuHint();
+	}
 
 	// 切换时把路径框换成对应引擎上次使用的路径
 	if( sense )
@@ -267,6 +375,7 @@ LRESULT LoadModelDlg::OnOk( UINT, INT, HWND, BOOL& bHandled )
 
 		appState.engineId = L"sherpa-sensevoice";
 		appState.senseVoiceDir = path;
+		appState.senseVoiceDevice = deviceIsGpu() ? L"gpu" : L"cpu";
 		appState.saveModelSource();
 		EndDialog( IDOK );
 		return 0;

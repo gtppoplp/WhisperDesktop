@@ -16,11 +16,15 @@ namespace Asr
 		engineInfo.id = L"whisper-gpu";
 		engineInfo.displayName = L"Whisper (GPU)";
 		engineInfo.flags = UsesGpu | SupportsTimestamps | SupportsTranslate | SupportsLanguage;
+		engineInfo.execDevice = eEngineDevice::Gpu;
 		// GPU 引擎不使用「每实例 CPU 线程」这个概念
 		engineInfo.cpuThreadsPerInstance = 0;
 		// 权重在 AppState 里共享、常驻显存；每次推理的临时缓冲约几十 MB，
 		// 但调度器只看系统内存，这里填的是 CPU 侧临时占用。
 		engineInfo.memoryPerInstanceMb = 128;
+		// Whisper 的 GPU 槽固定 1 个：小模型在单卡上已经能吃满算力，
+		// 再开一个只会两份 K/V cache 互相挤显存带宽。留 0 让调度器退回 1。
+		engineInfo.gpuMemoryPerInstanceMb = 0;
 	}
 
 	HRESULT WhisperEngine::load( LPCTSTR modelPath, bool useGpu )

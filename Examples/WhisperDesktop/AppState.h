@@ -22,6 +22,8 @@ public:
 	CString engineId;
 	// SenseVoice 的模型目录
 	CString senseVoiceDir;
+	// SenseVoice 的执行设备："cpu" / "gpu"（cuda）。缺省 cpu。
+	CString senseVoiceDevice;
 
 	DebugConsole console;
 	CComPtr<Whisper::iMediaFoundation> mediaFoundation;

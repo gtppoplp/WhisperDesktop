@@ -10,6 +10,10 @@ namespace Asr
 	public:
 		Whisper::iModel* model = nullptr;
 		Whisper::iMediaFoundation* mediaFoundation = nullptr;
+		// SenseVoice 的设备选择："cpu" / "gpu"，空表示 cpu
+		CString senseVoiceDevice;
+		// SenseVoice 的模型目录（界面上选过的路径）；空则回退到环境变量 / exe 目录
+		CString senseVoiceDir;
 	};
 
 	// 按 id 创建引擎实例。每次调用都返回一个全新的、互不共享状态的实例，
@@ -25,4 +29,12 @@ namespace Asr
 
 	// 是否为 GPU 引擎（调度器据此决定是否允许并发）
 	bool isGpuEngine( LPCTSTR id );
+
+	// 不依赖 id 的版本：查引擎列表得知这条条目跑在 GPU 还是 CPU 上。
+	// id 里带 "-gpu" 之类的后缀只是约定，判断时以能力描述为准。
+	bool isGpuEngineInfo( const std::vector<sAsrEngineInfo>& engines, LPCTSTR id );
+
+	// 同一实现的 CPU 变体 id。例如 sherpa-sensevoice-gpu -> sherpa-sensevoice。
+	// 没有对应变体时返回空串。
+	CString cpuVariantId( const std::vector<sAsrEngineInfo>& engines, LPCTSTR id );
 }

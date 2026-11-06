@@ -180,7 +180,7 @@ private:
 		volatile int itemIndex = -1;
 		// 该槽使用的引擎 id
 		CString engineId;
-		// 该槽是否使用 GPU（GPU 槽最多一个）
+		// 该槽是否使用 GPU（GPU 槽数量由显存预算决定，见 recommendedConcurrency）
 		bool gpu = false;
 		// 终止信号
 		volatile bool quit = false;
@@ -193,14 +193,22 @@ private:
 	// 保护 batchItems / 槽位分配的锁
 	CComAutoCriticalSection batchCs;
 
-	// 并发数：GPU 槽固定 1 个，其余给 CPU 引擎
+	// 用户填的并发数（0 表示自动）。单引擎模式下是总槽位数上限，
+	// 异构模式下只约束 CPU 槽，GPU 槽按显存单独推算。
 	int requestedConcurrency = 1;
 	// 是否启用异构并行：GPU 引擎与 CPU 引擎同时跑，共享同一个队列
 	bool hybridParallel = false;
+public:
+	// 按引擎能力与当前硬件（逻辑核数 / 可用内存 / 可用显存）推算推荐的并发数。
+	// 需要拿到真实的 CPU / 显存数据，所以是公开的静态函数。
 	static int recommendedConcurrency( const Asr::sAsrEngineInfo& engineInfo );
 
+private:
 	// 规划工作槽：返回每个槽位应使用的引擎 id
 	std::vector<CString> planSlots( const CString& engineId, int requested, size_t pendingCount );
+
+	// 由 planSlots 的结果算出每个槽是不是 GPU 槽（按引擎的 execDevice 判断）
+	std::vector<bool> resolveGpuSlots( const std::vector<CString>& slotEngines );
 
 	// 把队列里的下一个待办任务分配给空闲槽，返回分配到的槽索引，没有任务时返回 -1
 	int dispatchNextInSlot();
@@ -218,8 +226,9 @@ void workerLoop( int slotIndex );
 
 	// 启动 / 停止工作线程池
 	// slotEngines 里每一项对应一个工作线程要用的引擎 id，
-	// 异构并行时数组里会混有 GPU 引擎和 CPU 引擎
-	HRESULT startWorkers( const std::vector<CString>& slotEngines );
+	// 异构并行时数组里会混有 GPU 引擎和 CPU 引擎。
+	// gpuSlots 与它一一对应，标记该槽是不是 GPU 槽（决定任务认领方向和引擎设备）。
+	HRESULT startWorkers( const std::vector<CString>& slotEngines, const std::vector<bool>& gpuSlots );
 	void stopWorkers();
 
 	// 线程启动参数，避免用「认领」时序来推断槽位

@@ -24,9 +24,9 @@ namespace Asr
 	enum eEngineFlags : uint32_t
 	{
 		FlagsNone = 0,
-		// 使用 GPU（同一时间只应有一个槽位运行，避免显存/带宽争用）
+		// 支持在 GPU 上运行（能否同时开多个 GPU 槽由 gpuMemoryPerInstanceMb 决定）
 		UsesGpu = 1,
-		// 使用 CPU（可以多槽位并行）
+		// 支持在 CPU 上运行（可以多槽位并行）
 		UsesCpu = 2,
 		// 支持时间戳输出（SRT / VTT）
 		SupportsTimestamps = 4,
@@ -97,6 +97,13 @@ namespace Asr
 		std::function<HRESULT()> shouldContinue;
 	};
 
+	// 引擎实例实际运行的硬件
+	enum struct eEngineDevice : uint8_t
+	{
+		Cpu = 0,
+		Gpu = 1,
+	};
+
 	// 引擎能力描述，供 UI 显示和调度器分派
 	struct sAsrEngineInfo
 	{
@@ -104,11 +111,19 @@ namespace Asr
 		CString id;
 		// 显示名，例如 L"Whisper (GPU)"
 		CString displayName;
+		// 该实现支持哪些后端（能力），与下面 execDevice 是两回事
 		eEngineFlags flags = FlagsNone;
+		// 这条条目实际跑在哪块硬件上。listAvailableEngines 会为同一实现
+		// 分别输出 CPU / GPU 两条（例如 SenseVoice CPU 与 SenseVoice GPU），
+		// 调度器据此取「同一实现」的两个变体组成异构并行。
+		eEngineDevice execDevice = eEngineDevice::Cpu;
 		// 该引擎单实例建议占用的 CPU 线程数；0 表示与 CPU 无关（UsesGpu 的引擎）
 		int cpuThreadsPerInstance = 0;
 		// 单实例大致内存占用（MB），用于调度器估算能开几个
 		uint32_t memoryPerInstanceMb = 0;
+		// 单实例大致占用的显存（MB）。只有 UsesGpu 的引擎需要，0 表示未知/不适用。
+		// 调度器用它按「可用显存」推算 GPU 槽位上限，而不是一律只开 1 个。
+		uint32_t gpuMemoryPerInstanceMb = 0;
 	};
 
 	class iAsrEngine

@@ -24,6 +24,7 @@ public:
 		COMMAND_ID_HANDLER( IDOK, OnOk )
 		COMMAND_ID_HANDLER( IDC_BROWSE, OnBrowse )
 		COMMAND_HANDLER( IDC_MODEL_KIND, CBN_SELCHANGE, onKindChange )
+		COMMAND_HANDLER( IDC_SENSE_DEVICE, CBN_SELCHANGE, onDeviceChange )
 		MESSAGE_HANDLER( WM_CALLBACK_STATUS, OnCallbackStatus )
 		NOTIFY_ID_HANDLER( IDC_HYPERLINKS, OnHyperlink )
 		ON_BUTTON_CLICK( IDC_MODEL_ADV, onModelAdvanced )
@@ -35,7 +36,7 @@ public:
 		DDX_CONTROL_HANDLE( IDC_MODEL_KIND, cbModelKind )
 		DDX_CONTROL_HANDLE( IDC_PROGRESS, progressBar );
 	END_DDX_MAP()
-	
+
 private:
 	// 「引擎类型」下拉框的选项，索引要与 combobox 顺序一致
 	enum struct eModelKind : int
@@ -56,6 +57,13 @@ private:
 	LRESULT OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
 	LRESULT OnCallbackStatus( UINT, WPARAM wParam, LPARAM, BOOL& bHandled );
 	LRESULT onKindChange( UINT, INT, HWND, BOOL& bHandled );
+	LRESULT onDeviceChange( UINT, INT, HWND, BOOL& bHandled );
+	void populateDevices();
+	void refreshGpuHint();
+	// 当前设备下拉框选的是不是 GPU
+	bool deviceIsGpu() const;
+	// 设备下拉框 HWND（不走 DDX，避免与其它对话框 ID 冲突时绑错）
+	HWND deviceCombo() const;
 
 	LRESULT OnCommand( UINT, INT nIdentifier, HWND, BOOL& bHandled )
 	{

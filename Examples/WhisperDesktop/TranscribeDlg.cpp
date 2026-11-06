@@ -2,6 +2,7 @@
 #include "TranscribeDlg.h"
 #include "Asr/WhisperEngine.h"
 #include "Utils/logger.h"
+#include <dxgi1_4.h>
 
 HRESULT TranscribeDlg::show()
 {
@@ -65,25 +66,43 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 
 	// 异构并行：两个引擎都在的时候才有意义
 	hybridParallel = appState.boolLoad( regValHybrid );
-	if( hybridParallel )
-		hybridCheck.SetCheck( BST_CHECKED );
+	{
+		HWND hHybrid = ::GetDlgItem( m_hWnd, IDC_HYBRID );
+		if( ::IsWindow( hHybrid ) )
+		{
+			if( hybridCheck.m_hWnd != hHybrid )
+			{
+				if( ::IsWindow( hybridCheck.m_hWnd ) )
+					hybridCheck.Detach();
+				hybridCheck.Attach( hHybrid );
+			}
+			if( hybridParallel )
+				hybridCheck.SetCheck( BST_CHECKED );
+		}
+	}
 	{
 		Asr::AppContext ctx;
 		ctx.model = appState.model;
 		ctx.mediaFoundation = appState.mediaFoundation;
+		ctx.senseVoiceDevice = appState.senseVoiceDevice;
+		ctx.senseVoiceDir = appState.senseVoiceDir;
+		// 按「实际能跑在哪」判断：同一实现可能有 CPU / GPU 两个变体，
+		// 只要各有一个就允许异构（例如 SenseVoice GPU + SenseVoice CPU）。
 		bool haveGpu = false, haveCpu = false;
 		for( const Asr::sAsrEngineInfo& e : Asr::listAvailableEngines( ctx ) )
 		{
-			if( Asr::hasFlag( e.flags, Asr::UsesGpu ) )
+			if( e.execDevice == Asr::eEngineDevice::Gpu )
 				haveGpu = true;
-			if( Asr::hasFlag( e.flags, Asr::UsesCpu ) )
+			else
 				haveCpu = true;
 		}
 		const BOOL canHybrid = ( haveGpu && haveCpu ) ? TRUE : FALSE;
-		hybridCheck.EnableWindow( canHybrid );
+		if( ::IsWindow( hybridCheck.m_hWnd ) )
+			hybridCheck.EnableWindow( canHybrid );
 		if( !canHybrid )
 		{
-			hybridCheck.SetCheck( BST_UNCHECKED );
+			if( ::IsWindow( hybridCheck.m_hWnd ) )
+				hybridCheck.SetCheck( BST_UNCHECKED );
 			hybridParallel = false;
 		}
 	}
@@ -181,17 +200,32 @@ void TranscribeDlg::populateOutputFormats()
 void TranscribeDlg::populateEngines()
 {
 	engineIds.clear();
-	engineSelector.ResetContent();
+
+	// 中文资源曾漏掉 IDC_ENGINE，DDX 绑不到时 ResetContent 会断言。这里强制附着。
+	HWND hEngine = ::GetDlgItem( m_hWnd, IDC_ENGINE );
+	if( ::IsWindow( hEngine ) )
+	{
+		if( engineSelector.m_hWnd != hEngine )
+		{
+			if( ::IsWindow( engineSelector.m_hWnd ) )
+				engineSelector.Detach();
+			engineSelector.Attach( hEngine );
+		}
+		::SendMessageW( hEngine, CB_RESETCONTENT, 0, 0 );
+	}
 
 	Asr::AppContext ctx;
 	ctx.model = appState.model;
 	ctx.mediaFoundation = appState.mediaFoundation;
+	ctx.senseVoiceDevice = appState.senseVoiceDevice;
+	ctx.senseVoiceDir = appState.senseVoiceDir;
 
 	const std::vector<Asr::sAsrEngineInfo> engines = Asr::listAvailableEngines( ctx );
 	for( const Asr::sAsrEngineInfo& e : engines )
 	{
 		engineIds.push_back( e.id );
-		engineSelector.AddString( e.displayName );
+		if( ::IsWindow( hEngine ) )
+			::SendMessageW( hEngine, CB_ADDSTRING, 0, (LPARAM)(LPCWSTR)e.displayName );
 	}
 
 	if( engineIds.empty() )
@@ -226,12 +260,16 @@ void TranscribeDlg::populateEngines()
 	if( sel < 0 )
 		sel = 0;
 
-	engineSelector.SetCurSel( sel );
+	if( ::IsWindow( hEngine ) )
+		::SendMessageW( hEngine, CB_SETCURSEL, sel, 0 );
 }
 
 CString TranscribeDlg::selectedEngineId() const
 {
-	const int sel = engineSelector.GetCurSel();
+	HWND hEngine = ::GetDlgItem( m_hWnd, IDC_ENGINE );
+	const int sel = ::IsWindow( hEngine )
+		? (int)::SendMessageW( hEngine, CB_GETCURSEL, 0, 0 )
+		: -1;
 	if( sel >= 0 && sel < (int)engineIds.size() )
 		return engineIds[ sel ];
 	return Asr::defaultEngineId();
@@ -510,17 +548,73 @@ static uint64_t availablePhysicalMemory()
 	return ms.ullAvailPhys;
 }
 
+// 查询当前可用的显存（MB）。失败时返回 0，调用方应退回保守值。
+// 走 DXGI 而不是 CUDA：不需要额外依赖，也不需要显卡真的支持 CUDA。
+static uint32_t availableVramMb()
+{
+	IDXGIFactory1* factory = nullptr;
+	if( FAILED( ::CreateDXGIFactory1( __uuidof( IDXGIFactory1 ), (void**)&factory ) ) || nullptr == factory )
+		return 0;
+
+	uint32_t best = 0;
+	for( UINT i = 0; ; i++ )
+	{
+		IDXGIAdapter1* adapter = nullptr;
+		if( FAILED( factory->EnumAdapters1( i, &adapter ) ) )
+			break;
+		if( nullptr == adapter )
+			break;
+
+		DXGI_ADAPTER_DESC1 desc{};
+		if( SUCCEEDED( adapter->GetDesc1( &desc ) ) )
+		{
+			// 跳过软件适配器（WARP / Microsoft Basic Render）
+			if( 0 == ( desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE ) )
+			{
+				ULARGE_INTEGER budget{};
+				budget.QuadPart = desc.DedicatedVideoMemory;
+
+				// Win10 1709+ 起系统会报告「本进程可用的显存预算」，比总显存更准：
+				// 它扣掉了其它进程和其它程序已占用的部分。
+				IDXGIAdapter3* adapter3 = nullptr;
+				if( SUCCEEDED( adapter->QueryInterface( __uuidof( IDXGIAdapter3 ), (void**)&adapter3 ) ) && nullptr != adapter3 )
+				{
+					DXGI_QUERY_VIDEO_MEMORY_INFO info{};
+					if( SUCCEEDED( adapter3->QueryVideoMemoryInfo( 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info ) ) )
+					{
+						if( info.Budget > 0 && info.Budget < budget.QuadPart )
+							budget.QuadPart = info.Budget;
+					}
+					adapter3->Release();
+				}
+
+				const uint64_t mb = budget.QuadPart / ( 1024ull * 1024ull );
+				if( mb > best )
+					best = (uint32_t)std::min<uint64_t>( mb, 1024ull * 1024ull );
+			}
+		}
+		adapter->Release();
+	}
+	factory->Release();
+	return best;
+}
+
 // 根据引擎能力与当前硬件给出推荐的并发数。
 //
-// 约束来自两个方向：
-// 1) GPU 引擎固定 1 个 —— 同一块显卡并发只会互相抢显存带宽，越并发越慢。
-// 2) CPU 引擎同时受核心数与可用内存限制。实测 SenseVoice int8 单实例
-//    常驻约 300MB（模型 239MB + onnxruntime 运行时），所以必须按内存封顶，
-//    否则 16GB 机器上开 8 个会直接把系统压进交换区。
+// CPU 引擎受两个方向约束：
+// 1) 核心数：每个实例内部可能还有自己的线程池（Whisper CPU 后端会吃满所有核），
+//    所以按「逻辑核 × 2/3」封顶，留一部分给 UI、音频解码和其它进程。
+//    以前这里还有一个硬编码的 8，大核机器上会被白白压死，现在去掉了，
+//    真正的天花板交给内存和逻辑核数。
+// 2) 可用内存：单实例常驻（实测 SenseVoice int8 约 300MB）+ 临时缓冲余量，
+//    按这个值算能开几个，避免把机器压进交换区。
+//
+// GPU 引擎受显存约束：以前一律固定 1 个，但 int8 小模型单实例的显存占用远小于
+// 整卡显存，多开几个反而能把 GPU 的 SM 喂满。现在按「引擎自报的显存 × 可用显存」
+// 推算，并且同样不超过逻辑核数（否则多出来的线程只是在抢同一个 GPU，没有收益）。
 int TranscribeDlg::recommendedConcurrency( const Asr::sAsrEngineInfo& engineInfo )
 {
-	if( Asr::hasFlag( engineInfo.flags, Asr::UsesGpu ) )
-		return 1;
+	const bool gpu = engineInfo.execDevice == Asr::eEngineDevice::Gpu;
 
 	SYSTEM_INFO si{};
 	::GetSystemInfo( &si );
@@ -528,12 +622,39 @@ int TranscribeDlg::recommendedConcurrency( const Asr::sAsrEngineInfo& engineInfo
 	if( cores < 1 )
 		cores = 1;
 
-	// 按核心数：留一部分给 UI、音频解码和其它进程
+	// 按核心数：留一部分给 UI、音频解码和其它进程。
+	// 一个实例能被一个线程推着跑，所以线程数不超过逻辑核数才有意义。
 	int byCores = cores * 2 / 3;
 	if( byCores < 1 )
 		byCores = 1;
-	if( byCores > 8 )
-		byCores = 8;
+	if( byCores > cores )
+		byCores = cores;
+
+	if( gpu )
+	{
+		// 没报显存占用的 GPU 引擎（例如 Whisper）：保守地只开 1 个。
+		if( engineInfo.gpuMemoryPerInstanceMb < 64 )
+			return 1;
+
+		const uint32_t availVram = availableVramMb();
+		if( 0 == availVram )
+			return 1;
+
+		// 单实例预算：引擎自报值 * 1.25（arena 碎片余量），但至少 128MB。
+		uint64_t perInstanceMb = (uint64_t)engineInfo.gpuMemoryPerInstanceMb * 5 / 4;
+		if( perInstanceMb < 128 )
+			perInstanceMb = 128;
+
+		// 只允许用掉可用显存的一部分：留 512MB 给桌面合成和其它程序，最多用 70%。
+		// 显存不像内存那样可以「借用」，超了会直接分配到系统内存，性能断崖式下跌。
+		constexpr uint64_t reserveMb = 512;
+		const uint64_t usableMb = ( availVram > reserveMb ) ? ( ( availVram - reserveMb ) * 7 / 10 ) : 0;
+		const int vramLimit = (int)( usableMb / perInstanceMb );
+		if( vramLimit < 1 )
+			return 1;
+
+		return std::min( byCores, vramLimit );
+	}
 
 	// 按内存：单个实例的预算 = 引擎自报的常驻内存，加上推理期间的临时缓冲余量
 	int byMemory = byCores;
@@ -564,7 +685,15 @@ int TranscribeDlg::recommendedConcurrency( const Asr::sAsrEngineInfo& engineInfo
 	return ( recommended < 1 ) ? 1 : recommended;
 }
 
-HRESULT TranscribeDlg::startWorkers( const std::vector<CString>& slotEngines )
+// 按 GPU 的推荐值推算异构模式下的 GPU 槽数量。
+// 单引擎 GPU 模式沿用 recommendedConcurrency，保证两边算出来的上限一致。
+static int gpuSlotLimit( const Asr::sAsrEngineInfo& gpuInfo )
+{
+	const int n = TranscribeDlg::recommendedConcurrency( gpuInfo );
+	return ( n < 1 ) ? 1 : n;
+}
+
+HRESULT TranscribeDlg::startWorkers( const std::vector<CString>& slotEngines, const std::vector<bool>& gpuSlots )
 {
 	stopWorkers();
 
@@ -575,7 +704,7 @@ HRESULT TranscribeDlg::startWorkers( const std::vector<CString>& slotEngines )
 		return E_UNEXPECTED;
 	}
 
-	if( slotEngines.empty() )
+	if( slotEngines.empty() || slotEngines.size() != gpuSlots.size() )
 	{
 		logError( u8"没有可用的引擎槽位" );
 		return E_INVALIDARG;
@@ -588,7 +717,7 @@ HRESULT TranscribeDlg::startWorkers( const std::vector<CString>& slotEngines )
 	{
 		WorkerSlot& s = slots[ i ];
 		s.engineId = slotEngines[ i ];
-		s.gpu = Asr::isGpuEngine( s.engineId );
+		s.gpu = gpuSlots[ i ];
 		s.itemIndex = -1;
 		s.quit = false;
 		s.progressPct = 0;
@@ -662,6 +791,11 @@ void TranscribeDlg::workerLoop( int mySlot )
 	Asr::AppContext appCtx;
 	appCtx.model = appState.model;
 	appCtx.mediaFoundation = appState.mediaFoundation;
+	appCtx.senseVoiceDir = appState.senseVoiceDir;
+	// 设备按槽位决定，而不是全局：异构并行时同一个进程里会同时存在
+	// SenseVoice 的 GPU 实例和 CPU 实例。引擎 id 里已经带了设备信息
+	// （sherpa-sensevoice / sherpa-sensevoice-gpu），这里不再覆盖。
+	appCtx.senseVoiceDevice = slots[ mySlot ].gpu ? L"gpu" : L"cpu";
 
 	// 每个线程持有自己的引擎实例，避免上下文串味
 	std::unique_ptr<Asr::iAsrEngine> engine = Asr::createEngine( slots[ mySlot ].engineId, appCtx );
@@ -973,24 +1107,39 @@ void TranscribeDlg::onTranscribe()
 		}
 	}
 
+	// 异构模式下用户填的并发数只约束 CPU 槽，GPU 槽单独按显存推算，
+	// 所以拿 CPU 变体的上限来封顶；否则填个 2 就会把 CPU 槽一起压成 2 个。
+	int cpuCap = recommended;
+	if( haveInfo && activeInfo.execDevice == Asr::eEngineDevice::Gpu && hybridParallel )
+	{
+		Asr::AppContext ctx;
+		ctx.model = appState.model;
+		ctx.mediaFoundation = appState.mediaFoundation;
+		const std::vector<Asr::sAsrEngineInfo> engines = Asr::listAvailableEngines( ctx );
+		const CString cpuId = Asr::cpuVariantId( engines, activeInfo.id );
+		for( const Asr::sAsrEngineInfo& e : engines )
+		{
+			if( !cpuId.IsEmpty() && 0 == e.id.CompareNoCase( cpuId ) )
+			{
+				cpuCap = recommendedConcurrency( e );
+				break;
+			}
+		}
+	}
+
 	int concurrency = recommended;
 	if( requestedConcurrency > 0 )
 	{
 		concurrency = requestedConcurrency;
 		// 用户手填的值也要过一遍硬件限制，否则填个 64 会把机器直接打爆
-		if( haveInfo && !Asr::hasFlag( activeInfo.flags, Asr::UsesGpu ) )
+		if( haveInfo )
 		{
-			const int cap = recommendedConcurrency( activeInfo );
+			const int cap = ( activeInfo.execDevice == Asr::eEngineDevice::Gpu ) ? cpuCap : recommended;
 			if( concurrency > cap )
 			{
 				logWarning( u8"并发数超过硬件建议上限，已下调" );
 				concurrency = cap;
 			}
-		}
-		else if( haveInfo && Asr::hasFlag( activeInfo.flags, Asr::UsesGpu ) && concurrency > 1 )
-		{
-			// GPU 引擎并发无收益，直接压回 1
-			concurrency = 1;
 		}
 	}
 
@@ -1009,10 +1158,11 @@ void TranscribeDlg::onTranscribe()
 	}
 
 	// 组装槽位：每个槽位绑定一个引擎。
-	// 异构模式下 GPU 槽跑 Whisper、CPU 槽跑 SenseVoice，共享同一个任务队列。
+	// 异构模式下 GPU 槽和 CPU 槽（可能是同一个实现的两种设备）共享同一个任务队列。
 	std::vector<CString> slotEngines = planSlots( transcribeArgs.engineId, concurrency, pendingCount );
+	const std::vector<bool> gpuSlots = resolveGpuSlots( slotEngines );
 
-	HRESULT hr = startWorkers( slotEngines );
+	HRESULT hr = startWorkers( slotEngines, gpuSlots );
 	if( FAILED( hr ) )
 	{
 		transcribeError( L"无法创建工作线程", hr );
@@ -1034,8 +1184,10 @@ void TranscribeDlg::onTranscribe()
 // 规划工作槽。
 //
 // 单引擎模式：所有槽用同一个引擎，数量按硬件推荐值，且不超过待办文件数。
-// 异构模式：GPU 引擎固定占 1 个槽（同一块卡并发只会互相抢带宽），
-//          其余槽位留给 CPU 引擎。两边共享同一个队列，谁空闲谁取下一个文件。
+// 异构模式：GPU 槽数量按显存推算（int8 小模型可以开多个，把 SM 喂饱），
+//          CPU 槽数量按核心数/内存推算。两边共享同一个队列，谁空闲谁取下一个文件。
+// 选中的是 GPU 变体时，优先用「同一实现的 CPU 变体」做异构
+// （例如 SenseVoice GPU + SenseVoice CPU），这样两边的速度可比、文本风格一致。
 std::vector<CString> TranscribeDlg::planSlots( const CString& engineId, int requested, size_t pendingCount )
 {
 	std::vector<CString> result;
@@ -1043,6 +1195,8 @@ std::vector<CString> TranscribeDlg::planSlots( const CString& engineId, int requ
 	Asr::AppContext ctx;
 	ctx.model = appState.model;
 	ctx.mediaFoundation = appState.mediaFoundation;
+	ctx.senseVoiceDevice = appState.senseVoiceDevice;
+	ctx.senseVoiceDir = appState.senseVoiceDir;
 
 	const std::vector<Asr::sAsrEngineInfo> engines = Asr::listAvailableEngines( ctx );
 
@@ -1058,15 +1212,32 @@ std::vector<CString> TranscribeDlg::planSlots( const CString& engineId, int requ
 		}
 	}
 
-	// 找出可用的 GPU 引擎与 CPU 引擎（用于异构）
+	// 找出可用的 GPU 引擎与 CPU 引擎（用于异构）。
+	// 只看 execDevice：UsesGpu/UsesCpu 是「实现支持哪些后端」，入口处判断异构可用性时用它；
+	// 这里要的是「这条条目实际跑在哪」，必须用 execDevice，否则同一实现的两个变体会互相顶掉。
 	const Asr::sAsrEngineInfo* gpuInfo = nullptr;
 	const Asr::sAsrEngineInfo* cpuInfo = nullptr;
 	for( const Asr::sAsrEngineInfo& e : engines )
 	{
-		if( Asr::hasFlag( e.flags, Asr::UsesGpu ) && nullptr == gpuInfo )
+		if( e.execDevice == Asr::eEngineDevice::Gpu && nullptr == gpuInfo )
 			gpuInfo = &e;
-		else if( Asr::hasFlag( e.flags, Asr::UsesCpu ) && nullptr == cpuInfo )
+		else if( e.execDevice == Asr::eEngineDevice::Cpu && nullptr == cpuInfo )
 			cpuInfo = &e;
+	}
+
+	// 选中的是 CPU 变体、但同类实现还有 GPU 变体时，也可以组成异构
+	if( nullptr != gpuInfo && haveChosen && chosen.execDevice == Asr::eEngineDevice::Cpu )
+	{
+		for( const Asr::sAsrEngineInfo& e : engines )
+		{
+			if( e.execDevice != Asr::eEngineDevice::Gpu )
+				continue;
+			if( (uint32_t)e.flags == (uint32_t)chosen.flags )
+			{
+				gpuInfo = &e;
+				break;
+			}
+		}
 	}
 
 	// 勾选了异构并行、且两类引擎都存在时才走异构
@@ -1079,20 +1250,22 @@ std::vector<CString> TranscribeDlg::planSlots( const CString& engineId, int requ
 		if ( cpuSlots < 1 )
 			cpuSlots = 1;
 
+		// GPU 槽数量：按显存推算，用户填的值不参与（显存不够开多了只会掉到系统内存）
+		const int gpuSlots = gpuSlotLimit( *gpuInfo );
+
 		// 注意顺序：CPU 槽在前、GPU 槽在后。
 		// 后面会按待办文件数截断，把 CPU 放前面可以保证「文件少时优先用快的 CPU 引擎」——
 		// SenseVoice 是非自回归模型，单文件比 Whisper 快一个数量级。
 		for( int i = 0; i < cpuSlots; i++ )
 			result.push_back( cpuInfo->id );
-		result.push_back( gpuInfo->id );
+		for( int i = 0; i < gpuSlots; i++ )
+			result.push_back( gpuInfo->id );
 	}
 	else
 	{
-		int count = ( requested > 0 ) ? requested : ( haveChosen ? recommendedConcurrency( chosen ) : 1 );
+		const int cap = haveChosen ? recommendedConcurrency( chosen ) : 1;
+		int count = ( requested > 0 ) ? std::min( requested, cap ) : cap;
 		if( count < 1 )
-			count = 1;
-		// GPU 引擎不支持多槽
-		if( haveChosen && Asr::hasFlag( chosen.flags, Asr::UsesGpu ) )
 			count = 1;
 		for( int i = 0; i < count; i++ )
 			result.push_back( haveChosen ? chosen.id : engineId );
@@ -1104,6 +1277,21 @@ std::vector<CString> TranscribeDlg::planSlots( const CString& engineId, int requ
 	if( result.empty() )
 		result.push_back( engineId );
 
+	return result;
+}
+
+std::vector<bool> TranscribeDlg::resolveGpuSlots( const std::vector<CString>& slotEngines )
+{
+	Asr::AppContext context;
+	context.model = appState.model;
+	context.mediaFoundation = appState.mediaFoundation;
+	context.senseVoiceDir = appState.senseVoiceDir;
+	const std::vector<Asr::sAsrEngineInfo> engines = Asr::listAvailableEngines( context );
+
+	std::vector<bool> result;
+	result.reserve( slotEngines.size() );
+	for( const CString& id : slotEngines )
+		result.push_back( Asr::isGpuEngineInfo( engines, id ) );
 	return result;
 }
 

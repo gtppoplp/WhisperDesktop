@@ -62,6 +62,10 @@
 #define IDC_CONCURRENCY_LBL             1037
 #define IDC_MODEL_KIND                  1038
 #define IDC_HYBRID                      1039
+#define IDC_MODEL_TYPE_LBL              1040
+#define IDC_SENSE_DEVICE_LBL            1041
+#define IDC_SENSE_DEVICE                1042
+#define IDC_SENSE_DEVICE_TIP            1043
 #define IDC_STATIC                      -1
 
 // Next default values for new objects

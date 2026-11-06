@@ -5,8 +5,9 @@
 // 复制自 https://github.com/k2-fsa/sherpa-onnx v2.0.1 的 include/sherpa-onnx/c-api/c-api.h
 // 放到了 third_party/sherpa-onnx/include 下。
 //
-// 注意：这里不直接 #include，因为本文件可能被不含该目录的工程包含。
-// 真正需要 C API 类型的代码在 SenseVoiceEngine.cpp 里包含。
+// 这里需要 SherpaOnnxOfflineRecognizerConfig 的完整定义（buildConfig 的签名用到），
+// 而该结构体按值传递，不能用前置声明代替。
+#include <sherpa-onnx/c-api/c-api.h>
 namespace Asr
 {
 	// sherpa-onnx 的最小动态绑定。
@@ -78,6 +79,23 @@ namespace Asr
 		// 这里按标点和长度切分，时间轴按字符数等比估算。
 		static void splitIntoCaptions( const std::string& text, uint64_t totalTicks, std::vector<sAsrSegment>& out );
 
+		// 按当前加载参数再造一个独立识别器（分块并行时每个线程一个）。
+		// 返回 nullptr 表示失败。调用方用 SherpaApi::destroyOfflineRecognizer 释放。
+		const void* createExtraRecognizer() const;
+
+		// 构造识别器配置。加载时和分块并行时共用，避免两处参数不一致。
+		// 注意 SherpaOnnxOfflineRecognizerConfig 定义在全局命名空间（C API 头文件）。
+		bool buildConfig( ::SherpaOnnxOfflineRecognizerConfig& config,
+			const CStringA& modelA, const CStringA& tokensA, int threads, const char* providerName ) const;
+
+		// 分块并行时每个线程使用的识别器个数上限（内部再按 CPU 核数收敛）
+		int chunkParallelism = 1;
+
+		// 加载时记录的实际参数，供 createExtraRecognizer 复现
+		CStringA loadedModelA;
+		CStringA loadedTokensA;
+		int loadedThreads = 1;
+
 	public:
 		SenseVoiceEngine();
 		~SenseVoiceEngine() override;
@@ -85,6 +103,38 @@ namespace Asr
 		const sAsrEngineInfo& info() const override
 		{
 			return engineInfo;
+		}
+
+		// 按目标设备设置显示名与能力标志（加载模型界面 / 引擎列表用）。
+		// 只是 UI 层的描述，真正能否跑 GPU 由 cudaAvailable() 和识别器创建结果决定。
+		//
+		// 注意：UsesGpu / UsesCpu 描述的是「这份实例实际在哪跑」，两者都必须设置——
+		// 同一条目的 execDevice 才说明它跑在哪块硬件上。调度器用 execDevice 判断
+		// 同一个引擎能否既提供 GPU 槽又提供 CPU 槽（异构并行）。之前这里把两个标志
+		// 当成互斥，导致 SenseVoice 选 GPU 时整台机器的 CPU 槽就全没了。
+		void infoForDevice( bool gpu )
+		{
+			if( gpu )
+			{
+				engineInfo.id = L"sherpa-sensevoice-gpu";
+				engineInfo.displayName = L"SenseVoice (GPU)";
+				engineInfo.flags = UsesGpu | UsesCpu | SupportsTimestamps | SupportsLanguage;
+				engineInfo.execDevice = eEngineDevice::Gpu;
+				engineInfo.cpuThreadsPerInstance = 0;
+				engineInfo.memoryPerInstanceMb = 256;
+				// int8 模型权重 + ORT CUDA arena 经验值；偏保守，宁可少开一个也别 OOM
+				engineInfo.gpuMemoryPerInstanceMb = 900;
+			}
+			else
+			{
+				engineInfo.id = L"sherpa-sensevoice";
+				engineInfo.displayName = L"SenseVoice (CPU)";
+				engineInfo.flags = UsesGpu | UsesCpu | SupportsTimestamps | SupportsLanguage;
+				engineInfo.execDevice = eEngineDevice::Cpu;
+				engineInfo.cpuThreadsPerInstance = 1;
+				engineInfo.memoryPerInstanceMb = 320;
+				engineInfo.gpuMemoryPerInstanceMb = 0;
+			}
 		}
 
 		HRESULT load( LPCTSTR modelPath, bool useGpu ) override;
@@ -105,8 +155,13 @@ namespace Asr
 		// 请求 GPU 但回退到 CPU 时的原因，用于向用户解释
 		CString fallbackReason;
 
-		// 检测 CUDA 是否真的可用（DLL 能加载 + 显卡枚举得到）
+		// 检测 CUDA 是否真的可用（DLL 文件齐全 + 显卡枚举得到）
 		static bool cudaAvailable( CString& reason );
+
+		// 用一小段静音真实跑一次推理，确认 CUDA 路径真的能出结果。
+		// sherpa 在 CUDA provider 注册失败时也会返回非空识别器，随后静默用 CPU，
+		// 所以这个探测是「真的跑在 GPU 上」的唯一可靠证据。
+		static bool probeCudaInference( const void* rec, SherpaApi& api, CString& error );
 
 		// 把 Whisper 的语言 key 转成 sherpa 认识的字符串
 		static const char* languageCodeFromKey( uint32_t key );

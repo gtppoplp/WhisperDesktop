@@ -31,16 +31,47 @@ WhisperDesktop 是一个运行在 **Windows 64 位**上的本地语音转文字�
 > `ComputeShaders` 会生成 `Whisper\D3D\shaderData-Debug.inl` / `shaderData-Release.inl`。  
 > 如果出现 `E1696: 无法打开源文件 "shaderData-Debug.inl"`，通常就是这个生成步骤还没执行。
 
-### 2. 运行桌面程序
+> 如果本机没有 `v145` 平台工具集，可以在命令行指定已安装的工具集，例如：
+>
+> ```powershell
+> msbuild Examples\WhisperDesktop\WhisperDesktop.vcxproj -p:Configuration=Debug -p:Platform=x64 -p:PlatformToolset=v143 -p:SolutionDir="%CD%\"
+> ```
+
+### 2. 准备推理运行库（Whisper / SenseVoice）
+
+Whisper 与 SenseVoice 两种引擎的运行库都不入库，需要本地拉取：
+
+```powershell
+# Whisper（ggml）：由解决方案中的 Whisper 项目生成 Whisper.dll
+
+# SenseVoice CPU 版（约 22MB）
+.\third_party\sherpa-onnx\fetch.ps1
+
+# SenseVoice CUDA/GPU 版（约 460MB，含 onnxruntime_providers_cuda.dll）
+.\third_party\sherpa-onnx\fetch.ps1 -Cuda -Force
+```
+
+生成的 DLL 会由项目的 PostBuild 事件自动复制到输出目录（`x64\Debug` 或 `x64\Release`）。
+
+### 3. 运行桌面程序
 
 将 `Examples\WhisperDesktop\WhisperDesktop.vcxproj` 设为启动项目后直接运行即可。
 
-首次运行时仍需自行准备 Whisper 模型文件，例如：
+首次运行时需要准备模型文件：
+
+**Whisper（ggml 格式）**，例如：
 
 - `models\ggml-medium.bin`
 - `models\ggml-small.bin`
 
-### 3. 命令行运行 .NET 示例
+**SenseVoice**，放在 `models\sense-voice\`（也可在界面上选任意目录）：
+
+- `model.int8.onnx`（或 `model.onnx`）
+- `tokens.txt`
+
+也可用环境变量 `WHISPERDESKTOP_SENSEVOICE_MODEL` 指向模型目录。
+
+### 4. 命令行运行 .NET 示例
 
 仓库中还包含基于 `WhisperNet` 的 .NET 6 示例。下面是常见运行方式。
 
@@ -73,11 +104,83 @@ dotnet run --project Examples\MicrophoneCS\MicrophoneCS.csproj -c Debug -p:Platf
 - `-c 0`：使用编号为 `0` 的录音设备
 - 可先通过 `-ld` 查看设备列表
 
-### 4. 运行前的注意事项
+### 5. 运行前的注意事项
 
 - 请确保输出目录中存在 `Whisper.dll`
 - 请确保模型文件路径正确
 - .NET 示例默认目标为 `net6.0-windows`，需要本机安装对应 .NET 运行时
+
+---
+
+## SenseVoice 引擎
+
+除 Whisper 之外，程序内置了 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 驱动的 SenseVoice 引擎：
+模型体积小、CPU 上速度很快，原生支持中 / 英 / 日 / 韩 / 粤。
+
+### 在界面上切换 CPU / GPU
+
+1. 点「返回」进入 **加载 Whisper 模型** 界面
+2. 在「引擎类型」里选择 **SenseVoice**
+3. 此时会多出 **设备** 下拉框，可选 `CPU` 或 `GPU (CUDA)`
+4. 路径框填 SenseVoice 模型目录，点「确定」
+
+![](images/加载Whisper模型.png)
+
+选择结果会记在注册表里（`HKCU\SOFTWARE\const.me\WhisperDesktop`）：
+
+| 值 | 含义 |
+| --- | --- |
+| `engine` | `sherpa-sensevoice` / Whisper 引擎 id |
+| `senseVoiceDir` | SenseVoice 模型目录 |
+| `senseVoiceDevice` | `cpu` 或 `gpu` |
+
+转写界面的「引擎」下拉框会随之显示为 `SenseVoice (CPU)` 或 `SenseVoice (GPU)`，
+只有真正跑在 GPU 上时，「GPU+CPU」异构调度按钮才会变为可用。
+
+### GPU（CUDA）需要的条件
+
+SenseVoice 的 GPU 推理走 ONNX Runtime 的 CUDA Execution Provider，需要：
+
+| 组件 | 说明 |
+| --- | --- |
+| NVIDIA 显卡 + 驱动 | 需支持 CUDA 13.x |
+| CUDA 13 Toolkit | 提供 `cudart64_13.dll` / `cublas64_13.dll` / `cublasLt64_13.dll` |
+| cuDNN 9 | 提供 `cudnn64_9.dll` 等 |
+| CUDA 版 sherpa-onnx | `fetch.ps1 -Cuda`，含 `onnxruntime_providers_cuda.dll` |
+
+最省事的装法：
+
+```powershell
+# 1) CUDA Toolkit 从 NVIDIA 官网安装（安装后会自动设置 CUDA_PATH）
+
+# 2) cuDNN 9 可以直接从 pip 包里取 DLL，无需安装器
+pip download nvidia-cudnn-cu13 --no-deps -d %TEMP%\cudnn-dl
+# 解压 whl，把 nvidia\cudnn\bin\*.dll 拷到输出目录（与 WhisperDesktop.exe 同目录）
+
+# 3) CUDA 版 sherpa 运行库
+.\third_party\sherpa-onnx\fetch.ps1 -Cuda -Force
+```
+
+### 程序做了什么兜底
+
+CUDA 环境在 Windows 上很容易「看起来装了但跑不起来」，程序为此做了几件事：
+
+- **自动定位 `onnxruntime.dll`**：`C:\Windows\System32\onnxruntime.dll` 是系统自带的旧版本（1.17），
+  会被优先加载，导致 CUDA 版 sherpa 报 `requested API version [28] is not available`。
+  程序启动时会先用绝对路径把 exe 同目录的 `onnxruntime.dll` 钉死。
+- **自动补齐 CUDA 路径**：从 IDE / 终端启动时进程 PATH 可能没有 CUDA 的 `bin`，
+  程序会读取 `CUDA_PATH` 把 `bin`、`bin\x64` 追加进本进程 PATH。
+- **真实推理探测**：创建出 CUDA 识别器后，会先跑一小段静音确认结果真的能返回。
+  （sherpa 在 CUDA provider 注册失败时仍会返回非空识别器，随后静默用 CPU，只靠返回值判断会误报。）
+- **缺失时明确提示**：设备下拉框会显示 `GPU (CUDA，不可用)`，并在下方小字里写明缺哪个 DLL。
+- **自动回退**：GPU 不可用时引擎会回退到 CPU 继续工作，不会让整批任务失败。
+
+### 注意事项
+
+- 模型下载：推荐使用 `model.int8.onnx`（约 230MB）与 `tokens.txt`，通常从 HuggingFace 上的
+  SenseVoiceSmall 仓库获取；也可以换成 `model.onnx`（fp32，体积更大）。
+- 同一时间建议只用一张卡跑 SenseVoice；GPU 模式下程序会按显存限制并发数。
+- SenseVoice 的语言下拉框只认 自动 / 中文 / 英语 / 日语 / 韩语 / 粤语，其它语言会自动按「自动」处理。
 
 ## 界面与功能概览
 
@@ -113,8 +216,10 @@ dotnet run --project Examples\MicrophoneCS\MicrophoneCS.csproj -c Debug -p:Platf
 
 - 基于 Whisper 模型的本地语音识别
 - 支持批量文件转录与实时麦克风转录
-- Windows 原生实现：基于 MSVC v145 开发，无需 Python 或额外运行时
+- **内置 SenseVoice 引擎**：支持中 / 英 / 日 / 韩 / 粤，可在界面上切换 **CPU / GPU (CUDA)**
+- Windows 原生实现：基于 MSVC 开发，无需 Python 或额外运行时
 - 支持 GPU 加速（Direct3D 11）：适配 RTX 3070 Ti 等主流显卡
+- SenseVoice 支持 CUDA 加速（ONNX Runtime CUDA EP），不可用时自动回退 CPU
 - 新增 Whisper V3 Turbo 模型支持：兼顾识别速度与准确率
 - 深度支持中文与粤语：优化多语言代码映射，提供原生粤语选项
 - 中文界面与调试优化：支持控制台日志路径自定义，适合日常及工程使用
@@ -124,7 +229,8 @@ dotnet run --project Examples\MicrophoneCS\MicrophoneCS.csproj -c Debug -p:Platf
 ## 系统要求
 
 - **操作系统**：Windows 64 位（推荐 Windows 10 / 11）
-- **显卡**：支持 Direct3D 11 的 GPU
+- **显卡**：支持 Direct3D 11 的 GPU（Whisper）
+- **显卡**：NVIDIA + CUDA 13.x + cuDNN 9（SenseVoice GPU 模式，可选）
 - **CPU**：支持 AVX / F16C 指令集
 
 ---
@@ -137,6 +243,8 @@ dotnet run --project Examples\MicrophoneCS\MicrophoneCS.csproj -c Debug -p:Platf
 - 中文界面与提示信息（部分由 AI 辅助翻译并调整）
 - 使用体验与稳定性改进
 - 功能取舍与精简，面向日常使用场景
+- **新增 SenseVoice 引擎**（sherpa-onnx）：中 / 英 / 日 / 韩 / 粤，可在界面切换 CPU / GPU
+- 引擎抽象层（`Examples\WhisperDesktop\Asr\`）：统一 Whisper 与 SenseVoice 的加载与并发调度
 
 > 本仓库更侧重“拿来即用”，而非底层实现细节。
 
@@ -157,6 +265,10 @@ dotnet run --project Examples\MicrophoneCS\MicrophoneCS.csproj -c Debug -p:Platf
   https://github.com/ggerganov/whisper.cpp
 - OpenAI Whisper 模型  
   https://github.com/openai/whisper
+- sherpa-onnx（SenseVoice 推理）  
+  https://github.com/k2-fsa/sherpa-onnx
+- SenseVoice 模型（FunAudioLLM）  
+  https://github.com/FunAudioLLM/SenseVoice
 
 ---
 
