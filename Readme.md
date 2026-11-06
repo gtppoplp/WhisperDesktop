@@ -30,6 +30,10 @@ WhisperDesktop 是一个运行在 **Windows 64 位**上的本地语音转文字�
 
 > `ComputeShaders` 会生成 `Whisper\D3D\shaderData-Debug.inl` / `shaderData-Release.inl`。  
 > 如果出现 `E1696: 无法打开源文件 "shaderData-Debug.inl"`，通常就是这个生成步骤还没执行。
+>
+> `Release` 配置还需要 `Tools\CompressShaders` 在 Release 下运行一次（它读取
+> `ComputeShaders\x64\Release\*.cso`，生成 `shaderData-Release.inl`）。该工具是 .NET 项目，
+> 需要本机装有 .NET SDK 才能 `dotnet build`。
 
 > 如果本机没有 `v145` 平台工具集，可以在命令行指定已安装的工具集，例如：
 >
