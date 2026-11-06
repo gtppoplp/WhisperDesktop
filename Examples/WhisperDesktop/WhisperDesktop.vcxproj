@@ -73,7 +73,7 @@ copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime.dll" "$(OutDir)" 
 copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime_providers_shared.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
 if exist "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" "$(OutDir)" &gt;nul 2&gt;&amp;1
 if not exist "$(OutDir)models\sense-voice" mkdir "$(OutDir)models\sense-voice"
-rem CUDA 版运行时（onnxruntime_providers_cuda.dll / cudnn 等）存在时一并复制，供 GPU 推理
+// CUDA 版运行时（onnxruntime_providers_cuda.dll / cudnn 等）存在时一并复制，供 GPU 推理
 if exist "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime_providers_cuda.dll" copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\*.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1</Command>
     </PostBuildEvent>
     <ResourceCompile>
@@ -111,7 +111,7 @@ copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime.dll" "$(OutDir)" 
 copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime_providers_shared.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1
 if exist "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\sherpa-onnx-c-api.lib" "$(OutDir)" &gt;nul 2&gt;&amp;1
 if not exist "$(OutDir)models\sense-voice" mkdir "$(OutDir)models\sense-voice"
-rem CUDA 版运行时（onnxruntime_providers_cuda.dll / cudnn 等）存在时一并复制，供 GPU 推理
+// CUDA 版运行时（onnxruntime_providers_cuda.dll / cudnn 等）存在时一并复制，供 GPU 推理
 if exist "$(SolutionDir)third_party\sherpa-onnx\lib\onnxruntime_providers_cuda.dll" copy /Y "$(SolutionDir)third_party\sherpa-onnx\lib\*.dll" "$(OutDir)" &gt;nul 2&gt;&amp;1</Command>
     </PostBuildEvent>
     <ResourceCompile>

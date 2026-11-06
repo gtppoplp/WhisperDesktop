@@ -4,7 +4,9 @@
 # 用法：
 #   .\fetch.ps1              拉 CPU 版（约 22MB）
 #   .\fetch.ps1 -Cuda        拉 CUDA 版（约 458MB，含 onnxruntime_providers_cuda.dll）
-#   .\fetch.ps1 -Cuda13      拉 CUDA 13 版（新驱动用这个）
+#                            该包基于 cuda 13.x / cudnn 9.x / onnxruntime 1.28.2
+#   加 -Force 可强制重新下载（已存在时默认跳过）
+# 注意：CPU 版与 CUDA 版都解压到同一个 lib\ 目录，二者只需其一（CUDA 包已含 CPU 所需 DLL）。
 param(
     [switch]$Cuda,
     [switch]$Force
